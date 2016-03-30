@@ -36,7 +36,7 @@ public class Migration
 {
     /**
      * 
-     * @param args:  postgresql/mssql/mssql-integratedSecurity server:port templateDBName targetDBName user password unusedTables
+     * @param args:  postgresql/mssql/mssql-integratedSecurity server:port templateDBName targetDBName user password unusedTables adminDBName
      * @arg[0]: export-postgresql/export-mssql/import-postgresql/import-mssql 
      * 
      * export-postgresql targetZipDirectory pg_dumpPath host port userName password databaseName
@@ -72,9 +72,58 @@ public class Migration
         	}
             
         } else if(args[0].equals("export-mssql")) {
-        	//TODO
+        	System.out.println("Exporting mssql database to zip file");
+        	String dbAddress = "";
+        	String userName = "";
+        	String password = "";
+        	String databaseType = "";
+        	String hostAndPort = "";
+        	String databaseName = "";
+        	String zipPath = "";
+        	Connection connection = null;
+        	
+        	if(args[1].equals("integratedSecurity")) {
+        		integratedSecurity = true;
+        	}
+        	
+        	/**
+        	 * export-mssql integratedSecurity databaseName hostAndPort zipPath
+        	 */
+        	if(integratedSecurity) {
+        		if(args.length < 5) {
+        			System.out.println("Not enough arguments provided.");
+        			return;
+        		}
+        		databaseType = "mssql-integratedSecurity";
+        		databaseName = args[2];
+        		hostAndPort = args[3];
+        		zipPath = args[4];
+        		dbAddress = "//" + args[2];
+        		connection = getDatabaseConnection(dbAddress, userName, password, databaseType, hostAndPort, databaseName, integratedSecurity);
+        	}
+        	/**
+        	 * export-mssql databaseName userName password hostAndPort zipPath
+        	 */
+        	else {
+        		if(args.length < 6) {
+        			System.out.println("Not enough arguments provided.");
+        			return;
+        		}
+        		databaseType = "mssql";
+        		dbAddress = "//" + args[1];
+        		databaseName = args[1];
+        		userName = args[2];
+        		password = args[3];
+        		hostAndPort = args[4];
+        		zipPath = args[5];
+        		connection = getDatabaseConnection(dbAddress, userName, password, databaseType, hostAndPort, databaseName, integratedSecurity);
+        	}
+        	createMSSQLBackup(databaseName, connection);
+        	addMssqlDatabaseToZipArchive(databaseName, zipPath);
+        	System.out.println("Zip file created in selected location");
+        	
         } else if(args[0].equals("import-postgresql")) {
-        	if(args.length  < 7) {
+        	if(args.length  < 9) {
         		System.out.println("Not enough arguments provided.");
         	} else {
         		String psqlPath = args[1];
@@ -88,15 +137,25 @@ public class Migration
             	System.out.println("Importing postgreSQL database from zip file...");
             	restorePostgresqlDatabase(psqlPath, host, port, userName, password, databaseName, fullZipPath, adminDatabaseName);	
         	}
-        	
+        	/**
+        	 * import-mssql databaseName adminDatabase userName password hostAndPort zipPath
+        	 */
         } else if(args[0].equals("import-mssql")) {
-        	//TODO
-        } else {
         	
+        	String databaseName = args[1];
+        	String adminDatabase = args[2];
+        	String userName = args[3];
+        	String password = args[4];
+        	String hostAndPort = args[5];
+        	String zipPath = args[6];
+        	System.out.println("Importing database from zip file...");
+        	restoreMssqlDatabaseFromZip(databaseName, adminDatabase, userName, password, hostAndPort, zipPath);
+        } else {
+ 
             System.out.println("Performing database migration...");
             
             if(!args[0].equals("mssql-integratedSecurity")) {
-            	if(argsLength < 6) {
+            	if(argsLength < 7) {
                     System.out.println("Not all arguments provided!");
                     return;
                 }	
@@ -120,36 +179,25 @@ public class Migration
             }
 
             String dbAdressCopy = dbAdress + "/" + args[3];
+            String adminDatabaseAddress = "//" + args[1] + "/" + args[6];
             dbAdress += "/" + args[2];
             
             String hostAndPort = args[1];
+            String adminDatabaseName = args[6];
             
-              
-            tablesNames = getArgsTablesNames(args, integratedSecurity);
-            
+            tablesNames = getArgsTablesNames(args, integratedSecurity);          
                    
             Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort, templateDatabaseName, integratedSecurity);
             
-            //DatabaseMetaData metaData = connection.getMetaData();
-            //System.out.println(metaData.getDatabaseProductName());
-          
-            //connection.close();
-               
-            Connection connectionCopy = getDatabaseConnection( dbAdressCopy, userName, password, databaseType, hostAndPort, targetDatabaseName, integratedSecurity);
-            copySchema(connectionCopy, templateDatabaseName, targetDatabaseName);
-
-            //createTablesAndCopyContentOfPostgreSQL(connection, connection, templateDatabaseName, tablesNames);
-            
-            result = deleteUnusedTables(connectionCopy, targetDatabaseName, tablesNames, databaseType);
-            
-            
+            List<String> allTablesNames = getDatabaseTablesNames(connection);
+            result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password, hostAndPort, adminDatabaseName, allTablesNames,tablesNames);
+                        
             if(result) {
                 System.out.println("Database migrated successfully.");
             } else {
                 System.out.println("Database migration terminated.");
             }
-        }
-                            
+        }                 
     }
     
     public static String getHostFromAddress(String address) {
@@ -169,11 +217,27 @@ public class Migration
                 tablesNames.add(args[i]);
             }
     	} else {
-    		for(int i = 6; i < args.length; i++) {
+    		for(int i = 7; i < args.length; i++) {
                 tablesNames.add(args[i]);
             }
     	}
     	return tablesNames;
+    }
+    
+    public static void createDatabaseWithTemplate(Connection connection, String databaseName, 
+    		String templateSchema, String templateDatabase) {
+    	String query = "CREATE DATABASE " + databaseName + " WITH TEMPLATE " + templateDatabase + ";";
+    	Statement statement;
+    	try
+        {
+            statement = connection.createStatement();
+            statement.executeUpdate(query);
+            connection.close();
+        }
+        catch ( SQLException e )
+        {
+            e.printStackTrace();
+        }
     }
     
     public static boolean deleteUnusedTables(Connection connection, String targetDatabaseName, List<String> unusedTablesNames, String databaseType) {
@@ -311,32 +375,39 @@ public class Migration
     }
     
     
-    public static void copySchema(Connection connection, String templateDatabaseName, String targetDatabaseName) throws SQLException {
-        
+    public static boolean copySchema(Connection connection, String templateDatabaseName, String targetDatabaseName,
+    		String userName, String password, String dbAddress, String adminDatabaseName, List<String> allTablesNames,
+    		List<String> unusedTablesNames) throws SQLException {
+        boolean result = false;
         DatabaseMetaData metaData = connection.getMetaData();
         String databaseType = metaData.getDatabaseProductName();
         if(databaseType.equals("Microsoft SQL Server")) {
         	createDatabaseMigrationDirectory();
+        } else if(databaseType.equals("PostgreSQL")) {
+            performDatabaseCopy( connection, templateDatabaseName, targetDatabaseName, databaseType, userName, password, dbAddress, adminDatabaseName);
+            copyTablesToSchema(connection, templateDatabaseName, targetDatabaseName, allTablesNames, unusedTablesNames);
+            result = copyContentToSchemaTables(connection, templateDatabaseName, targetDatabaseName, allTablesNames, unusedTablesNames);
+            //createDatabaseWithTemplate(connection, targetDatabaseName,templateDatabaseName , templateDatabaseName);
         }
-        performDatabaseCopy( connection, templateDatabaseName, targetDatabaseName, databaseType );
+        return result;
+        
     }
     
-    public static void performDatabaseCopy(Connection connection, String templateDatabaseName, String targetDatabaseName, String databaseType) {
+    public static void performDatabaseCopy(Connection connection, String templateDatabaseName, String targetDatabaseName, 
+    		String databaseType, String userName, String password, String dbAddress, String adminDatabaseName) {
         
+    	String adminDatabaseAddress =  "//" + dbAddress + "/"  + adminDatabaseName;
+    	createSchema(connection, targetDatabaseName);
+    	
         String query = "";
         if(databaseType.equals( "PostgreSQL" )) {
-            //query = "CREATE DATABASE " + targetDatabaseName + " WITH TEMPLATE " + templateDatabaseName + ";";
-        	//query = "CREATE DATABASE " + targetDatabaseName + ";";
         	String createFunctionQuery = getPostgresqlCreateFunctionQuery(templateDatabaseName, targetDatabaseName);
             Statement statement;
-            Statement statementInvoke;
             try
             {
                 statement = connection.createStatement();
-                statementInvoke = connection.createStatement();
-               // statement.execute(createFunctionQuery);
-               // statement.executeQuery("SELECT clone_schema('"+ templateDatabaseName +"','"+ targetDatabaseName+"');");
-                statement.execute("CREATE TABLE " + "tabelka" + " (LIKE " + "dvdrental.public.actor" + " INCLUDING ALL);");
+                //statementInvoke = connection.createStatement();
+                statement.execute(createFunctionQuery);
             }
             catch ( SQLException e )
             {
@@ -344,12 +415,72 @@ public class Migration
                 e.printStackTrace();
                 return;
             }
-            
-            
+                      
         } else if (databaseType.equals("Microsoft SQL Server")) {
            createMSSQLBackupToNewDatabase(templateDatabaseName, targetDatabaseName, connection);
            deleteDatabaseMigrationFile(templateDatabaseName);
         }              
+    }
+    
+    public static boolean copyContentToSchemaTables(Connection connection, String templateDatabaseName, 
+    		String targetDatabaseName, List<String> allTablesNames, List<String> unusedTablesNames) {
+    	
+    	boolean result;
+    	Statement statement;
+    	allTablesNames = removeElementsFromList(allTablesNames, unusedTablesNames);
+    	
+        try {
+			statement = connection.createStatement();
+	    	for(int i = 0; i < allTablesNames.size(); i++) {
+	    		String tableName = allTablesNames.get(i);
+	    		statement.execute("INSERT INTO " + targetDatabaseName +"." + tableName + " (SELECT * FROM " + "public." + tableName + " );");
+	    	}
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+        result = true;
+        return result;
+    }
+    
+    public static void copyTablesToSchema(Connection connection, String templateDatabaseName, String targetDatabaseName, List<String> allTablesNames, List<String> unusedTablesNames) {
+    	Statement statement;
+        try {
+			statement = connection.createStatement();
+			
+	    	for(int i = 0; i < allTablesNames.size(); i++) {
+	    		String tableName = allTablesNames.get(i);
+	    		statement.execute("CREATE TABLE IF NOT EXISTS "+ targetDatabaseName + "." + tableName + " (LIKE " +  "public." + tableName + " INCLUDING ALL);");
+	    	}
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+    }
+    
+    public static List<String> removeElementsFromList(List<String> names, List<String> unusedNames) {
+    	for(int i = 0 ; i < unusedNames.size(); i++) {
+    		if(names.contains(unusedNames.get(i))) {
+    			names.remove(unusedNames.get(i));
+    		}
+    	}
+    	return names;
+    }
+    
+    public static void createSchema(Connection connection, String schemaName) {
+    	String query = "CREATE SCHEMA IF NOT EXISTS " + schemaName +";";
+    	System.out.println(query);
+    	
+    	Statement statement;
+        try
+        {
+            statement = connection.createStatement();
+            statement.execute(query);
+        }
+        catch ( SQLException e )
+        {
+            System.out.println("Error while creating database.");
+            e.printStackTrace();
+            return;
+        }
     }
     
     public static String getPostgresqlCreateFunctionQuery(String templateDatabase, String targetDatabase) {
@@ -360,18 +491,17 @@ public class Migration
     	query += "  objeto text; \n";
     	query += "  buffer text; \n";
     	query += "BEGIN \n";
-    	query += "    EXECUTE 'CREATE SCHEMA ' || " + targetDatabase + " ; \n";
+    	query += "    EXECUTE 'CREATE SCHEMA IF NOT EXISTS ' || " + targetDatabase + " ; \n";
     	query += "    FOR objeto IN \n";
     	query += "        SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = " + templateDatabase + "\n";
     	query += "LOOP        \n";
     	query += "        buffer := " + targetDatabase +" || '.' || objeto; \n";
-    	query += "        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || " + templateDatabase + " || '.' || objeto || ' INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING DEFAULTS)'; \n";
-    	query += "        EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || " + templateDatabase + " || '.' || objeto || ')'; \n" ;
+    	query += "        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || " + templateDatabase + " || '.' || objeto || ' INCLUDING ALL)'; \n";
+    //	query += "        EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || " + templateDatabase + " || '.' || objeto || ')'; \n" ;
     	query += "    END LOOP; \n";
     	query += "END; \n";
     	query += "$BODY$ \n";
-    	query += "LANGUAGE plpgsql VOLATILE;";
-    	System.out.println(query);		
+    	query += "LANGUAGE plpgsql VOLATILE;";	
     	return query;
     }
     
@@ -403,6 +533,73 @@ public class Migration
         }
     	
     	
+    }
+    
+    public static void createMSSQLBackup(String templateDatabaseName, Connection connection ) {
+    	String query = "";
+    	createDatabaseMigrationDirectory();
+    	query += "BACKUP DATABASE " + templateDatabaseName + " TO DISK = 'C:\\DatabaseMigration\\" + templateDatabaseName + ".bak'  \n";
+    	
+    	Statement statement;
+        try
+        {
+            statement = connection.createStatement();
+            statement.execute(query);
+           
+        }
+        catch ( SQLException e )
+        {
+            System.out.println("Error while executing.");
+            e.printStackTrace();
+            return;
+        }
+    }
+    
+    public static void restoreMssqlDatabaseFromZip(String databaseName, String adminDatabase, String userName, 
+    		String password, String hostAndPort, String zipPath) {
+    	
+    	String dbAddress = hostAndPort + "/" + databaseName;
+    	Connection connection = getConnectionMsSQL(dbAddress, userName, password, hostAndPort, adminDatabase, false);
+    	//createMssqlDatabase(connection, databaseName);
+    	restoreMssqlDatabase(connection, databaseName, zipPath);
+    }
+    
+    public static void restoreMssqlDatabase(Connection connection, String databaseName, String zipPath) {
+    	
+    	createDatabaseMigrationDirectory();
+    	unZip(zipPath, "C:\\DatabaseMigration");
+    	
+    	String query = "RESTORE DATABASE " + databaseName + " FROM DISK='c:\\DatabaseMigration\\" + databaseName + ".bak'  \n";
+    	Statement statement;
+        try
+        {
+            statement = connection.createStatement();
+            statement.execute(query); 
+        }
+        catch ( SQLException e )
+        {
+            System.out.println("Error while creating database.");
+            e.printStackTrace();
+            return;
+        }
+    }
+    
+    public static void createMssqlDatabase(Connection connection, String databaseName) {
+    	String query = "CREATE DATABASE " + databaseName +";";
+    	System.out.println(query);
+    	
+    	Statement statement;
+        try
+        {
+            statement = connection.createStatement();
+            statement.execute(query); 
+        }
+        catch ( SQLException e )
+        {
+            System.out.println("Error while creating database.");
+            e.printStackTrace();
+            return;
+        }
     }
     
     public static void createMSSQLBackupToNewDatabase(String templateDatabaseName, String targetDatabaseName, Connection connection) {
@@ -641,7 +838,25 @@ public class Migration
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
             System.out.println("Exception while importing.");
-
+		}
+    }
+    
+    public static void addMssqlDatabaseToZipArchive(String databaseName, String targetZipDirectoryPath) throws IOException {
+	  	
+    	FileOutputStream fos;
+		try {
+			String filePath = "C:\\DatabaseMigration\\" + databaseName + ".bak";
+			File file = new File("C:\\DatabaseMigration\\"+ databaseName + ".bak");
+			fos = new FileOutputStream(targetZipDirectoryPath);
+			ZipOutputStream zos = new ZipOutputStream(fos);
+			addToZipFile(filePath, zos);
+			zos.close();
+			fos.close();
+			removeFile(filePath);
+            System.out.println("Zip file created successfully.");
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+            System.out.println("Exception while importing.");
 		}
     }
     
@@ -668,7 +883,7 @@ public class Migration
     		String userName, String password, String databaseName, String fullZipPath, String adminDatabaseName) {
     	
     	String dbAddress = "//" + host + "/" + adminDatabaseName;
-    	createDatabase(dbAddress, userName, password, databaseName);
+    	createDatabasePostgresql(dbAddress, userName, password, databaseName);
     	unZip(fullZipPath, System.getProperty("user.home"));
     	String sqlPath = System.getProperty("user.home") + "\\" + databaseName + ".backup";
     	
@@ -763,7 +978,7 @@ public class Migration
        }
       } 
     
-    public static void createDatabase(String dbAdress, String userName, String password,
+    public static void createDatabasePostgresql(String dbAdress, String userName, String password,
     		String databaseName) {
     	Connection connection = getConnectionPostgreSQL(dbAdress, userName, password);
     	String query = "CREATE DATABASE " + databaseName +";";
@@ -783,7 +998,5 @@ public class Migration
             return;
         }
     }
-    
-    
     
 }
