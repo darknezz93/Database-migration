@@ -1,4 +1,4 @@
-package com.suncode.database.migration;
+package com.database.migration;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -46,6 +46,10 @@ public class Migration
      * @throws ClassNotFoundException
      * pg_dump path : C:\\Program Files\\PostgreSQL\\9.5\\bin\\pg_dump
      * @throws IOException 
+     * 
+     * import-mssql trunk testowa adam password localhost:1433 C://Users//Adam//Desktop//file.zip
+     * export-mssql integratedSecurity databaseName hostAndPort zipPath
+     * export-mssql databaseName userName password hostAndPort zipPath
      */
     public static void main( String[] args ) throws SQLException, ClassNotFoundException, IOException
     {
@@ -568,17 +572,19 @@ public class Migration
     	
     	createDatabaseMigrationDirectory();
     	unZip(zipPath, "C:\\DatabaseMigration");
-    	
-    	String query = "RESTORE DATABASE " + databaseName + " FROM DISK='c:\\DatabaseMigration\\" + databaseName + ".bak'  \n";
+    	String query = "RESTORE DATABASE " + databaseName + " FROM DISK='C:\\DatabaseMigration\\" + databaseName + ".bak'  \n";
     	Statement statement;
         try
         {
             statement = connection.createStatement();
-            statement.execute(query); 
+            statement.execute(query);
+            removeFile("C:\\DatabaseMigration\\" + databaseName + ".bak");
+            System.out.println("Database restored successfully.");
         }
         catch ( SQLException e )
         {
-            System.out.println("Error while creating database.");
+            System.out.println("Error while restoring database.");
+            removeFile("C:\\DatabaseMigration\\" + databaseName + ".bak");
             e.printStackTrace();
             return;
         }
@@ -650,7 +656,6 @@ public class Migration
 		File theDir = new File("C:/DatabaseMigration");
 
 		if (!theDir.exists()) {
-			System.out.println("creating directory: " + "C:/DatabaseMigration");
 			boolean result = false;
 
 			try {
