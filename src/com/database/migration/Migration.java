@@ -171,6 +171,8 @@ public class Migration
             	}
             }
             
+            String adminDatabaseAddress = "";
+            String adminDatabaseName = "";
             String databaseType = args[0];
             String dbAdress = "//" + args[1];     //"localhost:5432";
             String templateDatabaseName = args[2];
@@ -178,23 +180,25 @@ public class Migration
             String userName = "";
             String password = "";
             if(!integratedSecurity) {
+            	adminDatabaseAddress = "//" + args[1] + "/" + args[6];
+            	adminDatabaseName = args[6];
                 userName = args[4];    //"postgres";
                 password = args[5];    //"postgres";
             }
 
             String dbAdressCopy = dbAdress + "/" + args[3];
-            String adminDatabaseAddress = "//" + args[1] + "/" + args[6];
             dbAdress += "/" + args[2];
             
             String hostAndPort = args[1];
-            String adminDatabaseName = args[6];
+         
             
             tablesNames = getArgsTablesNames(args, integratedSecurity);          
                    
             Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort, templateDatabaseName, integratedSecurity);
             
             List<String> allTablesNames = getDatabaseTablesNames(connection);
-            result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password, hostAndPort, adminDatabaseName, allTablesNames,tablesNames);
+            result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password, 
+            		hostAndPort, adminDatabaseName, allTablesNames,tablesNames, integratedSecurity);
                         
             if(result) {
                 System.out.println("Database migrated successfully.");
@@ -380,18 +384,25 @@ public class Migration
     
     
     public static boolean copySchema(Connection connection, String templateDatabaseName, String targetDatabaseName,
-    		String userName, String password, String dbAddress, String adminDatabaseName, List<String> allTablesNames,
-    		List<String> unusedTablesNames) throws SQLException {
+    		String userName, String password, String hostAndPort, String adminDatabaseName, List<String> allTablesNames,
+    		List<String> unusedTablesNames, boolean integratedSecurity) throws SQLException {
         boolean result = false;
         DatabaseMetaData metaData = connection.getMetaData();
         String databaseType = metaData.getDatabaseProductName();
         if(databaseType.equals("Microsoft SQL Server")) {
+        	String dbAddress = "//" + hostAndPort;
+        	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
         	createDatabaseMigrationDirectory();
+        	createDatabaseMsSQL(targetDatabaseName, templateDatabaseName,dbAddress,userName, password, integratedSecurity, hostAndPort);
+        	
+        	Connection connectionCopy = getConnectionMsSQL(dbAddress, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
+        	copyMsSQLTablesSchemaToTargetDatabase(connection, connectionCopy);
+        	result = copyMsSQLTablesContent(connectionCopy, templateDatabaseName, tablesToCopy);
+        	
         } else if(databaseType.equals("PostgreSQL")) {
-            performDatabaseCopy( connection, templateDatabaseName, targetDatabaseName, databaseType, userName, password, dbAddress, adminDatabaseName);
+            performDatabaseCopy( connection, templateDatabaseName, targetDatabaseName, databaseType, userName, password, hostAndPort, adminDatabaseName);
             copyTablesToSchema(connection, templateDatabaseName, targetDatabaseName, allTablesNames, unusedTablesNames);
             result = copyContentToSchemaTables(connection, templateDatabaseName, targetDatabaseName, allTablesNames, unusedTablesNames);
-            //createDatabaseWithTemplate(connection, targetDatabaseName,templateDatabaseName , templateDatabaseName);
         }
         return result;
         
@@ -702,7 +713,15 @@ public class Migration
     public static List<String> getDatabaseTablesNames(Connection connection) throws SQLException {
         List<String> tablesNames = new ArrayList<String>();
         DatabaseMetaData md = connection.getMetaData();
-        ResultSet rs = md.getTables(null, null, "%", null);
+        ResultSet rs;
+        
+        String databaseType = md.getDatabaseProductName();
+        if(databaseType.equals("PostgreSQL")) {
+        	rs = md.getTables(null, null, "%", null);
+        } else {
+        	rs = md.getTables(null, "dbo", "%", null);
+        }
+        
         while (rs.next()) {
             if(rs.getString("TABLE_TYPE") != null) {
                 if(rs.getString("TABLE_TYPE").equals("TABLE")) {
@@ -1004,4 +1023,257 @@ public class Migration
         }
     }
     
+    public static void createDatabaseMsSQL(String targetDatabaseName, String templateDatabaseName, String dbAdress,
+    		String userName, String password, boolean integratedSecurity, String hostAndPort) {
+    	
+    	Connection connection = getConnectionMsSQL(dbAdress, userName, password, hostAndPort, templateDatabaseName, integratedSecurity);
+    	String query = "if db_id('" + targetDatabaseName +"') is null CREATE DATABASE " + targetDatabaseName +";";
+    	System.out.println(query);
+    	
+    	Statement statement;
+        try
+        {
+            statement = connection.createStatement();
+            statement.execute(query);
+           
+        }
+        catch ( SQLException e )
+        {
+            System.out.println("Error while creating database.");
+            e.printStackTrace();
+            return;
+        }
+    }
+    
+    public static String getMsSQLCreateTableQuery(String tableName) {
+    	String query = "";
+    	query += "DECLARE @table_name SYSNAME \n";
+    	query += "SELECT @table_name = 'dbo." + tableName + "' \n";
+    	query += "DECLARE  \n";
+    	query += "@object_name SYSNAME  \n";
+    	query += ", @object_id INT  \n";
+    	query += "SELECT   \n";
+    	query += "@object_name = '[' + s.name + '].[' + o.name + ']'  \n";
+    	query += ", @object_id = o.[object_id]  \n";
+    	query += "FROM sys.objects o WITH (NOWAIT)  \n";
+    	query += "JOIN sys.schemas s WITH (NOWAIT) ON o.[schema_id] = s.[schema_id]  \n";
+    	query += "WHERE s.name + '.' + o.name = @table_name AND o.[type] = 'U' AND o.is_ms_shipped = 0  \n";
+    	query += "DECLARE @SQL NVARCHAR(MAX) = ''  \n";
+    	query += ";WITH index_column AS   \n";
+    	query += "(  \n";
+    	query += "SELECT  \n";
+    	query += "ic.[object_id]  \n";
+    	query += ", ic.index_id  \n";
+    	query += ", ic.is_descending_key  \n";
+    	query += ", ic.is_included_column  \n";
+    	query += ", c.name  \n";
+    	query += "FROM sys.index_columns ic WITH (NOWAIT)  \n";
+    	query += "    JOIN sys.columns c WITH (NOWAIT) ON ic.[object_id] = c.[object_id] AND ic.column_id = c.column_id  \n";
+    	query += "WHERE ic.[object_id] = @object_id),  \n";
+    	query += "fk_columns AS (  \n";
+    	query += "SELECT k.constraint_object_id  \n";
+    	query += ", cname = c.name  \n";
+    	query += ", rcname = rc.name  \n";
+    	query += "FROM sys.foreign_key_columns k WITH (NOWAIT)  \n";
+    	query += "    JOIN sys.columns rc WITH (NOWAIT) ON rc.[object_id] = k.referenced_object_id AND rc.column_id = k.referenced_column_id   \n";
+    	query += "    JOIN sys.columns c WITH (NOWAIT) ON c.[object_id] = k.parent_object_id AND c.column_id = k.parent_column_id  \n";
+    	query += " WHERE k.parent_object_id = @object_id ) \n";
+    	query += " SELECT @SQL = 'CREATE TABLE ' + @object_name + CHAR(13) + '(' + CHAR(13) + STUFF(( \n";
+    	query += " SELECT CHAR(9) + ', [' + c.name + '] ' +  \n";
+    	query += " CASE WHEN c.is_computed = 1 \n";
+    	query += " THEN 'AS ' + cc.[definition] \n";
+    	query += " ELSE UPPER(tp.name) +  \n";
+    	query += "                 CASE WHEN tp.name IN ('varchar', 'char', 'varbinary', 'binary', 'text') \n";
+    	query += "                        THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR(5)) END + ')' \n";
+    	query += "                       WHEN tp.name IN ('nvarchar', 'nchar', 'ntext')\n";
+    	query += "                         THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length / 2 AS VARCHAR(5)) END + ')'\n";
+    	query += "  WHEN tp.name IN ('datetime2', 'time2', 'datetimeoffset')\n";
+    	query += "  THEN '(' + CAST(c.scale AS VARCHAR(5)) + ')'\n";
+    	query += "  WHEN tp.name = 'decimal' \n";
+    	query += "                         THEN '(' + CAST(c.[precision] AS VARCHAR(5)) + ',' + CAST(c.scale AS VARCHAR(5)) + ')'\n";
+    	query += "                      ELSE ''\n";
+    	query += "                  END +\n";
+    	query += "                  CASE WHEN c.collation_name IS NOT NULL THEN ' COLLATE ' + c.collation_name ELSE '' END +\n";
+    	query += "                  CASE WHEN c.is_nullable = 1 THEN ' NULL' ELSE ' NOT NULL' END +\n";
+    	query += "                  CASE WHEN dc.[definition] IS NOT NULL THEN ' DEFAULT' + dc.[definition] ELSE '' END + \n";
+    	query += "                  CASE WHEN ic.is_identity = 1 THEN ' IDENTITY(' + CAST(ISNULL(ic.seed_value, '0') AS CHAR(1)) + ',' + CAST(ISNULL(ic.increment_value, '1') AS CHAR(1)) + ')' ELSE '' END \n";
+    	query += "          END + CHAR(13)\n";
+    	query += "      FROM sys.columns c WITH (NOWAIT)\n";
+    	query += "      JOIN sys.types tp WITH (NOWAIT) ON c.user_type_id = tp.user_type_id\n";
+    	query += "      LEFT JOIN sys.computed_columns cc WITH (NOWAIT) ON c.[object_id] = cc.[object_id] AND c.column_id = cc.column_id\n";
+    	query += "      LEFT JOIN sys.default_constraints dc WITH (NOWAIT) ON c.default_object_id != 0 AND c.[object_id] = dc.parent_object_id AND c.column_id = dc.parent_column_id\n";
+    	query += "      LEFT JOIN sys.identity_columns ic WITH (NOWAIT) ON c.is_identity = 1 AND c.[object_id] = ic.[object_id] AND c.column_id = ic.column_id\n";
+    	query += "  WHERE c.[object_id] = @object_id\n";
+    	query += "  ORDER BY c.column_id\n";
+    	query += "  FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, CHAR(9) + ' ')\n";
+    	query += "  + ISNULL((SELECT CHAR(9) + ', CONSTRAINT [' + k.name + '] PRIMARY KEY (' +\n";
+    	query += "  (SELECT STUFF((\n";
+    	query += "                           SELECT ', [' + c.name + '] ' + CASE WHEN ic.is_descending_key = 1 THEN 'DESC' ELSE 'ASC' END\n";
+    	query += "                           FROM sys.index_columns ic WITH (NOWAIT)\n";
+    	query += "                           JOIN sys.columns c WITH (NOWAIT) ON c.[object_id] = ic.[object_id] AND c.column_id = ic.column_id\n";
+    	query += "                           WHERE ic.is_included_column = 0\n";
+    	query += "                              AND ic.[object_id] = k.parent_object_id \n";
+    	query += "                               AND ic.index_id = k.unique_index_id  \n";
+    	query += "                           FOR XML PATH(N''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, ''))\n";
+    	query += "              + ')' + CHAR(13)\n";
+    	query += "    FROM sys.key_constraints k WITH (NOWAIT)\n";
+    	query += "              WHERE k.parent_object_id = @object_id \n";
+    	query += "  AND k.[type] = 'PK'), '') + ')'  + CHAR(13)\n";
+    	query += "  + ISNULL((SELECT (\n";
+    	query += "  SELECT CHAR(13) +\n";
+    	query += "  'ALTER TABLE ' + @object_name + ' WITH' \n";
+    	query += "  + CASE WHEN fk.is_not_trusted = 1 \n";
+    	query += "  THEN ' NOCHECK'\n";
+    	query += "  ELSE ' CHECK'\n";
+    	query += "  END +\n";
+    	query += "  ' ADD CONSTRAINT [' + fk.name  + '] FOREIGN KEY('\n";
+    	query += "  + STUFF((\n";
+    	query += "  SELECT ', [' + k.cname + ']'\n";
+    	query += "  FROM fk_columns k\n";
+    	query += "  WHERE k.constraint_object_id = fk.[object_id]\n";
+    	query += "  FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '')\n";
+    	query += "  + ')' +\n";
+    	query += "                ' REFERENCES [' + SCHEMA_NAME(ro.[schema_id]) + '].[' + ro.name + '] ('\n";
+    	query += "                + STUFF((\n";
+    	query += "                  SELECT ', [' + k.rcname + ']'\n";
+    	query += "                  FROM fk_columns k\n";
+    	query += "                  WHERE k.constraint_object_id = fk.[object_id]\n";
+    	query += "                  FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '')\n";
+    	query += "  + ')'\n";
+    	query += "  + CASE\n";
+    	query += "                  WHEN fk.delete_referential_action = 1 THEN ' ON DELETE CASCADE' \n";
+    	query += "                  WHEN fk.delete_referential_action = 2 THEN ' ON DELETE SET NULL'\n";
+    	query += "  WHEN fk.delete_referential_action = 3 THEN ' ON DELETE SET DEFAULT'\n";
+    	query += "  ELSE ''\n";
+    	query += "  END\n";
+    	query += "  + CASE \n";
+    	query += "  WHEN fk.update_referential_action = 1 THEN ' ON UPDATE CASCADE'\n";
+    	query += "  WHEN fk.update_referential_action = 2 THEN ' ON UPDATE SET NULL'\n";
+    	query += "  WHEN fk.update_referential_action = 3 THEN ' ON UPDATE SET DEFAULT' \n";
+    	query += "  ELSE ''\n";
+    	query += "   END\n";
+    	query += "              + CHAR(13) + 'ALTER TABLE ' + @object_name + ' CHECK CONSTRAINT [' + fk.name  + ']' + CHAR(13)\n";
+    	query += "          FROM sys.foreign_keys fk WITH (NOWAIT)\n";
+    	query += "          JOIN sys.objects ro WITH (NOWAIT) ON ro.[object_id] = fk.referenced_object_id\n";
+    	query += "          WHERE fk.parent_object_id = @object_id\n";
+    	query += "          FOR XML PATH(N''), TYPE).value('.', 'NVARCHAR(MAX)')), '')\n";
+    	query += "      + ISNULL(((SELECT\n";
+    	query += "           CHAR(13) + 'CREATE' + CASE WHEN i.is_unique = 1 THEN ' UNIQUE' ELSE '' END \n";
+    	query += "                  + ' NONCLUSTERED INDEX [' + i.name + '] ON ' + @object_name + ' (' +\n";
+    	query += "                  STUFF((\n";
+    	query += "                  SELECT ', [' + c.name + ']' + CASE WHEN c.is_descending_key = 1 THEN ' DESC' ELSE ' ASC' END\n";
+    	query += "                  FROM index_column c\n";
+    	query += "   WHERE c.is_included_column = 0\n";
+    	query += "                      AND c.index_id = i.index_id\n";
+    	query += "                  FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')'  \n";
+    	query += "                  + ISNULL(CHAR(13) + 'INCLUDE (' + \n";
+    	query += "                      STUFF((\n";
+    	query += "                      SELECT ', [' + c.name + ']'\n";
+    	query += "  FROM index_column c\n";
+    	query += "                      WHERE c.is_included_column = 1\n";
+    	query += "  AND c.index_id = i.index_id\n";
+    	query += "                      FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')', '')  + CHAR(13)\n";
+    	query += "          FROM sys.indexes i WITH (NOWAIT)\n";
+    	query += "  WHERE i.[object_id] = @object_id\n";
+    	query += "  AND i.is_primary_key = 0\n";
+    	query += "  AND i.[type] = 2\n";
+    	query += "          FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)')\n";
+    	query += "  ), '')\n";
+    	query += "  SELECT @SQL\n";
+    	query += "  \n";
+    	
+    	return query;
+    }
+    
+    public static String getMsSQLCreateTablesQuery() {
+    	String query = "";
+    	query += "select  'create table [' + so.name + '] (' + o.list + ')' + CASE WHEN tc.Constraint_Name IS NULL THEN '' ELSE 'ALTER TABLE ' + so.Name + ' ADD CONSTRAINT ' + tc.Constraint_Name  + ' PRIMARY KEY ' + ' (' + LEFT(j.List, Len(j.List)-1) + ')' END  \n";
+    	query += "from    sysobjects so  \n";
+    	query += "cross apply  \n";
+    	query += "(SELECT   \n";
+    	query += "'  ['+column_name+'] ' +  \n";
+    	query += "        data_type + case data_type  \n";
+    	query += "when 'sql_variant' then ''  \n";
+    	query += "when 'text' then ''  \n";
+    	query += "when 'ntext' then ''  \n";
+    	query += "when 'xml' then ''  \n";
+    	query += "            when 'decimal' then '(' + cast(numeric_precision as varchar) + ', ' + cast(numeric_scale as varchar) + ')'  \n";
+    	query += "            else coalesce('('+case when character_maximum_length = -1 then 'MAX' else cast(character_maximum_length as varchar) end +')','') end + ' ' +  \n";
+    	query += "case when exists (  \n";
+    	query += "select id from syscolumns  \n";
+    	query += "where object_name(id)=so.name  \n";
+    	query += "and name=column_name  \n";
+    	query += "and columnproperty(id,name,'IsIdentity') = 1  \n";
+    	query += ") then  \n";
+    	query += "'IDENTITY(' +  \n";
+    	query += "cast(ident_seed(so.name) as varchar) + ',' +  \n";
+    	query += "cast(ident_incr(so.name) as varchar) + ')'  \n";
+    	query += "else '' \n";
+    	query += "end + ' ' +  \n";
+    	query += "         (case when IS_NULLABLE = 'No' then 'NOT ' else '' end ) + 'NULL ' +   \n";
+    	query += "          case when information_schema.columns.COLUMN_DEFAULT IS NOT NULL THEN 'DEFAULT '+ information_schema.columns.COLUMN_DEFAULT ELSE '' END + ', '   \n";
+    	query += " from information_schema.columns where table_name = so.name  \n";
+    	query += " order by ordinal_position \n";
+    	query += " FOR XML PATH('')) o (list) \n";
+    	query += " left join \n";
+    	query += "  information_schema.table_constraints tc \n";
+    	query += " on  tc.Table_name       = so.Name  \n";
+    	query += "AND tc.Constraint_Type  = 'PRIMARY KEY'  \n";
+    	query += "cross apply  \n";
+    	query += "    (select '[' + Column_Name + '], '  \n";
+    	query += "FROM   information_schema.key_column_usage kcu  \n";
+    	query += "WHERE  kcu.Constraint_Name = tc.Constraint_Name  \n";
+    	query += " ORDER BY  \n";
+    	query += " ORDINAL_POSITION \n";
+    	query += " FOR XML PATH('')) j (list) \n";
+    	query += " where   xtype = 'U' \n";
+    	query += " AND name    NOT IN ('dtproperties') \n";
+
+    	
+    	return query;
+    }
+    
+    public static void copyMsSQLTablesSchemaToTargetDatabase(Connection connection, Connection connectionCopy) {
+    	try {
+			List<String> tablesNames = getDatabaseTablesNames(connection);
+				String query = getMsSQLCreateTablesQuery();
+				
+				Statement statement = connection.createStatement();
+				Statement statementCopy = connectionCopy.createStatement();
+
+				ResultSet rs = statement.executeQuery(query);
+				while(rs.next()) {
+					String createTableQuery = rs.getString(1);
+				    System.out.println(createTableQuery);
+					statementCopy.executeUpdate(createTableQuery);
+				}
+
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+    }
+    
+    public static boolean copyMsSQLTablesContent(Connection connectionCopy, String templateDatabaseName,
+    	List<String> tablesToCopy) {
+    	boolean result = false;
+    	for(int i = 0; i < tablesToCopy.size(); i++) {
+    		String query = getMsSQLInsertStatement(tablesToCopy.get(i), templateDatabaseName);
+    		System.out.println(query);
+    		try {
+				Statement statement = connectionCopy.createStatement();
+				statement.executeUpdate(query);
+				result = true;
+			} catch (SQLException e) {
+				result = false;
+				e.printStackTrace();
+			}
+    	}   	
+    	return result;
+    }
+    
+    public static String getMsSQLInsertStatement(String targetTableName, String templateDatabaseName) {
+    	String query = "INSERT INTO [" + targetTableName + "] SELECT * FROM [" + templateDatabaseName +"].[dbo].[" + targetTableName +"]";
+    	return query;
+    }
+
 }
