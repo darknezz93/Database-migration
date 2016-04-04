@@ -196,6 +196,9 @@ public class Migration
                    
             Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort, templateDatabaseName, integratedSecurity);
             
+            for(int i = 0; i < tablesNames.size(); i++) {
+            	System.out.println(tablesNames.get(i));
+            }
             List<String> allTablesNames = getDatabaseTablesNames(connection);
             result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password, 
             		hostAndPort, adminDatabaseName, allTablesNames,tablesNames, integratedSecurity);
@@ -386,6 +389,7 @@ public class Migration
     public static boolean copySchema(Connection connection, String templateDatabaseName, String targetDatabaseName,
     		String userName, String password, String hostAndPort, String adminDatabaseName, List<String> allTablesNames,
     		List<String> unusedTablesNames, boolean integratedSecurity) throws SQLException {
+    	
         boolean result = false;
         DatabaseMetaData metaData = connection.getMetaData();
         String databaseType = metaData.getDatabaseProductName();
@@ -431,9 +435,6 @@ public class Migration
                 return;
             }
                       
-        } else if (databaseType.equals("Microsoft SQL Server")) {
-           createMSSQLBackupToNewDatabase(templateDatabaseName, targetDatabaseName, connection);
-           deleteDatabaseMigrationFile(templateDatabaseName);
         }              
     }
     
@@ -442,12 +443,12 @@ public class Migration
     	
     	boolean result;
     	Statement statement;
-    	allTablesNames = removeElementsFromList(allTablesNames, unusedTablesNames);
+    	List<String> copyTablesNames = removeElementsFromList(allTablesNames, unusedTablesNames);
     	
         try {
 			statement = connection.createStatement();
-	    	for(int i = 0; i < allTablesNames.size(); i++) {
-	    		String tableName = allTablesNames.get(i);
+	    	for(int i = 0; i < copyTablesNames.size(); i++) {
+	    		String tableName = copyTablesNames.get(i);
 	    		statement.execute("INSERT INTO " + targetDatabaseName +"." + tableName + " (SELECT * FROM " + "public." + tableName + " );");
 	    	}
 		} catch (SQLException e) {
