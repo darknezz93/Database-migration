@@ -40,7 +40,7 @@ public class Migration
      * @arg[0]: export-postgresql/export-mssql/import-postgresql/import-mssql 
      * 
      * export-postgresql targetZipDirectory pg_dumpPath host port userName password databaseName
-     * export-postgresql C:\\Users\\Adam\\Desktop\\ "C:\\Program Files\\PostgreSQL\\9.5\\bin\\pg_dump" localhost 5432 pguser pguser dvdrental
+     * export-postgresql C:\\Users\\Adam\\Desktop\\ "C:\\Program Files\\PostgreSQL\\9.5\\bin\\pg_dump" localhost 5432 pguser pguser dvdrental adminDBName
      * import-postgresql "C:\\Program Files\\PostgreSQL\\9.5\\bin\\psql.exe", localhost, 5432, pguser, dvdrental, C://Users//Adam//Desktop//dvdrental.zip
      * @throws SQLException
      * @throws ClassNotFoundException
@@ -71,7 +71,7 @@ public class Migration
         		String databaseName = args[7];
         		System.out.println("Exporting database to zip file...");
                 exportPostgresToSQLFile(pg_dumpPath, host, 
-                		port, userName, password, databaseName, System.getProperty("user.home") + "\\" + databaseName + ".backup");
+                		port, userName, password, databaseName, System.getProperty("user.home") + File.separator + databaseName + ".backup");
                 addDatabaseToZipArchive(databaseName, targetZipDirectoryPath);
         	}
             
@@ -351,7 +351,6 @@ public class Migration
     
     public static String prepareDeleteTablesQuery(List<String> unusedTablesNames, String databaseType, String targetDatabaseName) {
         String query = "DROP TABLE ";
-        System.out.println(unusedTablesNames.size());
         for(int i = 0; i < unusedTablesNames.size(); i++) {
             if(i != unusedTablesNames.size()-1) {
             	
@@ -370,7 +369,6 @@ public class Migration
             	}   
             }
         }
-        System.out.println(query);
         return query;
     }
     
@@ -404,12 +402,130 @@ public class Migration
         	result = copyMsSQLTablesContent(connectionCopy, templateDatabaseName, tablesToCopy);
         	
         } else if(databaseType.equals("PostgreSQL")) {
-            performDatabaseCopy( connection, templateDatabaseName, targetDatabaseName, databaseType, userName, password, hostAndPort, adminDatabaseName);
-            copyTablesToSchema(connection, templateDatabaseName, targetDatabaseName, allTablesNames, unusedTablesNames);
-            result = copyContentToSchemaTables(connection, templateDatabaseName, targetDatabaseName, allTablesNames, unusedTablesNames);
+        	String dbAddress = "//" + hostAndPort;
+            //performDatabaseCopy( connection, templateDatabaseName, targetDatabaseName, databaseType, userName, password, hostAndPort, adminDatabaseName);
+            //copyTablesToSchema(connection, templateDatabaseName, targetDatabaseName, allTablesNames, unusedTablesNames);
+            //result = copyContentToSchemaTables(connection, templateDatabaseName, targetDatabaseName, allTablesNames, unusedTablesNames);
+            result = copyPostgreSQLSchemaToSQLFile(targetDatabaseName, templateDatabaseName);
+        	createDatabasePostgresqlWithConnection(connection, targetDatabaseName);
+            result = restoreDatabaseSchemaFromSQLFile();
+            /**
+             * Dzia³a kopiowanie schematu bez danych do nowej bazy danych
+             * TODO : kopiowanie danych do nowej bazy 
+             * TODO : parametry wczytywane z linii polecen
+             */
         }
         return result;
         
+    }
+    
+    public static boolean restoreDatabaseSchemaFromSQLFile() {
+    	boolean result = false;
+    	
+    	
+        final List<String> baseCmds = new ArrayList<String>();
+        baseCmds.add("C:\\Program Files\\PostgreSQL\\9.5\\bin\\psql");
+        baseCmds.add("-d");
+        baseCmds.add("skopiowana");
+        baseCmds.add("-h");
+        baseCmds.add("localhost");
+        baseCmds.add("-p");
+        baseCmds.add("5432");
+        baseCmds.add("-U");
+        baseCmds.add("pguser");
+        //baseCmds.add("-v");
+        baseCmds.add("-f");
+        baseCmds.add("C:/Users/Adam/Desktop/backup.sql");
+   
+        final ProcessBuilder pb = new ProcessBuilder(baseCmds);
+        //psql -d database_name -h localhost -U postgres < path/db.sql
+        
+        // Set the password
+        final Map<String, String> env = pb.environment();
+        env.put("PGPASSWORD", "pguser");
+
+        try {
+            final Process process = pb.start();
+
+            final BufferedReader r = new BufferedReader(
+                      new InputStreamReader(process.getErrorStream()));
+            String line = r.readLine();
+            while (line != null) {
+                System.err.println(line);
+                line = r.readLine();
+            }
+            r.close();
+
+            final int dcertExitCode = process.waitFor();
+
+         } catch (IOException e) {
+            e.printStackTrace();
+         } catch (InterruptedException ie) {
+            ie.printStackTrace();
+         }
+    	
+    	
+    	
+    	return result;
+    }
+    
+    public static boolean copyPostgreSQLSchemaToSQLFile(String targetDatabaseName, String templateDatabaseName) {
+    	boolean result = false;
+    	
+        final List<String> baseCmds = new ArrayList<String>();
+        baseCmds.add("C:\\Program Files\\PostgreSQL\\9.5\\bin\\pg_dump");
+        baseCmds.add("-h");
+        baseCmds.add("localhost");
+        baseCmds.add("-p");
+        baseCmds.add("5432");
+        baseCmds.add("-U");
+        baseCmds.add("pguser");
+        baseCmds.add("-s");
+        baseCmds.add("-v");
+        baseCmds.add("-f");
+        baseCmds.add("C:/Users/Adam/Desktop/backup.sql");
+        baseCmds.add("dvdrental");
+        final ProcessBuilder pb = new ProcessBuilder(baseCmds);
+        //pg_dump oldDB --schema masters  | psql -h localhost newDB;
+        
+        // Set the password
+        final Map<String, String> env = pb.environment();
+        env.put("PGPASSWORD", "pguser");
+
+        try {
+            final Process process = pb.start();
+
+            final BufferedReader r = new BufferedReader(
+                      new InputStreamReader(process.getErrorStream()));
+            String line = r.readLine();
+            while (line != null) {
+                System.err.println(line);
+                line = r.readLine();
+            }
+            r.close();
+
+            final int dcertExitCode = process.waitFor();
+
+         } catch (IOException e) {
+            e.printStackTrace();
+         } catch (InterruptedException ie) {
+            ie.printStackTrace();
+         } 
+    	
+    	//pg_dump -U pguser -s dvdrental > sqlPath
+    	
+    	/*final String cmd = "\"C:\\Program Files\\PostgreSQL\\9.5\\bin\\pg_dump \" dvdrental --schema skopiowana  | \"C:\\Program Files\\PostgreSQL\\9.5\\bin\\psql \" -h localhost:5432 newDB;";
+
+        java.lang.Runtime rt = java.lang.Runtime.getRuntime();
+        try {
+			java.lang.Process p = rt.exec(cmd);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}*/
+    	
+    	
+    	return result;
     }
     
     public static void performDatabaseCopy(Connection connection, String templateDatabaseName, String targetDatabaseName, 
@@ -483,7 +599,6 @@ public class Migration
     
     public static void createSchema(Connection connection, String schemaName) {
     	String query = "CREATE SCHEMA IF NOT EXISTS " + schemaName +";";
-    	System.out.println(query);
     	
     	Statement statement;
         try
@@ -554,7 +669,7 @@ public class Migration
     public static void createMSSQLBackup(String templateDatabaseName, Connection connection ) {
     	String query = "";
     	createDatabaseMigrationDirectory();
-    	query += "BACKUP DATABASE " + templateDatabaseName + " TO DISK = 'C:\\DatabaseMigration\\" + templateDatabaseName + ".bak'  \n";
+    	query += "BACKUP DATABASE " + templateDatabaseName + " TO DISK = 'C:/DatabaseMigration/" + templateDatabaseName + ".bak'  \n";
     	
     	Statement statement;
         try
@@ -583,20 +698,20 @@ public class Migration
     public static void restoreMssqlDatabase(Connection connection, String databaseName, String zipPath) {
     	
     	createDatabaseMigrationDirectory();
-    	unZip(zipPath, "C:\\DatabaseMigration");
-    	String query = "RESTORE DATABASE " + databaseName + " FROM DISK='C:\\DatabaseMigration\\" + databaseName + ".bak'  \n";
+    	unZip(zipPath, "C:/DatabaseMigration");
+    	String query = "RESTORE DATABASE " + databaseName + " FROM DISK='C:/DatabaseMigration/" + databaseName + ".bak'  \n";
     	Statement statement;
         try
         {
             statement = connection.createStatement();
             statement.execute(query);
-            removeFile("C:\\DatabaseMigration\\" + databaseName + ".bak");
+            removeFile("C:/DatabaseMigration/" + databaseName + ".bak");
             System.out.println("Database restored successfully.");
         }
         catch ( SQLException e )
         {
             System.out.println("Error while restoring database.");
-            removeFile("C:\\DatabaseMigration\\" + databaseName + ".bak");
+            removeFile("C:/DatabaseMigration/" + databaseName + ".bak");
             e.printStackTrace();
             return;
         }
@@ -622,11 +737,11 @@ public class Migration
     
     public static void createMSSQLBackupToNewDatabase(String templateDatabaseName, String targetDatabaseName, Connection connection) {
     	String query = "";
-    	query += "BACKUP DATABASE " + templateDatabaseName + " TO DISK = 'C:\\DatabaseMigration\\" + templateDatabaseName + ".bak'  \n";
-    	query += "RESTORE DATABASE " + targetDatabaseName + " FROM DISK='c:\\DatabaseMigration\\" + templateDatabaseName + ".bak'  \n";
+    	query += "BACKUP DATABASE " + templateDatabaseName + " TO DISK = 'C:/DatabaseMigration/" + templateDatabaseName + ".bak'  \n";
+    	query += "RESTORE DATABASE " + targetDatabaseName + " FROM DISK='c:/DatabaseMigration/" + templateDatabaseName + ".bak'  \n";
     	query += "WITH  \n";
-    	query += "MOVE 'trunk' TO 'c:\\DatabaseMigration\\" + targetDatabaseName + ".mdf', \n";
-    	query += "MOVE 'trunk_log' TO 'c:\\DatabaseMigration\\" + targetDatabaseName + "_log.ldf ' \n";
+    	query += "MOVE 'trunk' TO 'c:/DatabaseMigration/" + targetDatabaseName + ".mdf', \n";
+    	query += "MOVE 'trunk_log' TO 'c:/DatabaseMigration/" + targetDatabaseName + "_log.ldf ' \n";
     	
     	Statement statement;
         try
@@ -647,7 +762,7 @@ public class Migration
     public static void deleteDatabaseMigrationFile(String templateDatabaseName) {
 
     	try{		
-    		File file = new File("c:\\DatabaseMigration\\" + templateDatabaseName + ".bak");
+    		File file = new File("c:/DatabaseMigration/" + templateDatabaseName + ".bak");
         	file.delete();
     	}catch(Exception e){	
     		e.printStackTrace();
@@ -851,9 +966,9 @@ public class Migration
     	  	
     	FileOutputStream fos;
 		try {
-			String filePath = System.getProperty("user.home") + "\\" + templateDatabaseName + ".backup";
-			File file = new File(System.getProperty("user.home") + "\\" + templateDatabaseName + ".backup");
-			fos = new FileOutputStream(targetZipDirectoryPath + templateDatabaseName + ".zip");
+			String filePath = System.getProperty("user.home") + File.separator + templateDatabaseName + ".backup";
+			File file = new File(System.getProperty("user.home") + File.separator + templateDatabaseName + ".backup");
+			fos = new FileOutputStream(targetZipDirectoryPath + ".zip");
 			ZipOutputStream zos = new ZipOutputStream(fos);
 			addToZipFile(filePath, zos);
 			zos.close();
@@ -870,8 +985,8 @@ public class Migration
 	  	
     	FileOutputStream fos;
 		try {
-			String filePath = "C:\\DatabaseMigration\\" + databaseName + ".bak";
-			File file = new File("C:\\DatabaseMigration\\"+ databaseName + ".bak");
+			String filePath = "C:/DatabaseMigration/" + databaseName + ".bak";
+			File file = new File("C:/DatabaseMigration/"+ databaseName + ".bak");
 			fos = new FileOutputStream(targetZipDirectoryPath);
 			ZipOutputStream zos = new ZipOutputStream(fos);
 			addToZipFile(filePath, zos);
@@ -910,7 +1025,7 @@ public class Migration
     	String dbAddress = "//" + host + "/" + adminDatabaseName;
     	createDatabasePostgresql(dbAddress, userName, password, databaseName);
     	unZip(fullZipPath, System.getProperty("user.home"));
-    	String sqlPath = System.getProperty("user.home") + "\\" + databaseName + ".backup";
+    	String sqlPath = System.getProperty("user.home") +  File.separator + databaseName + ".backup";
     	
         final List<String> baseCmds = new ArrayList<String>();
         baseCmds.add(psqlPath);
@@ -1275,6 +1390,25 @@ public class Migration
     public static String getMsSQLInsertStatement(String targetTableName, String templateDatabaseName) {
     	String query = "INSERT INTO [" + targetTableName + "] SELECT * FROM [" + templateDatabaseName +"].[dbo].[" + targetTableName +"]";
     	return query;
+    }
+    
+    public static void createDatabasePostgresqlWithConnection(Connection connection, String databaseName) {
+    	String query = "CREATE DATABASE " + databaseName +";";
+    	System.out.println(query);
+    	
+    	Statement statement;
+        try
+        {
+            statement = connection.createStatement();
+            statement.execute(query);
+           
+        }
+        catch ( SQLException e )
+        {
+            System.out.println("Error while creating database.");
+            e.printStackTrace();
+            return;
+        }
     }
 
 }
