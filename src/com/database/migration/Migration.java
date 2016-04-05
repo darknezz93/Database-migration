@@ -1453,7 +1453,6 @@ public class Migration
 			statementCopy = connectionCopy.createStatement();
 			
 			tables = collectTablesList(tablesToCopy, connectionCopy);
-			
 			for(int k = 0 ; k < tables.size(); k++) {
 				System.out.println(tables.get(k));
 			}
@@ -1483,40 +1482,87 @@ public class Migration
     
     public static List<String> collectTablesList(List<String> tablesNames, Connection connection) {
     	List<String> finalTablesOrder = new ArrayList<>();
+    	List<String> tablesWithForeignKeys = new ArrayList<>();
+    	List<String> normalTables = new ArrayList<>();
+    	
     	for(int i = 0; i < tablesNames.size(); i++) {
     		String table = tablesNames.get(i);
-    		if(!chceckIfTableContainsForeignKey(table, connection)) {
-    			finalTablesOrder.add(table);
+    		if(chceckIfTableContainsForeignKey(table, connection)) {
+    			tablesWithForeignKeys.add(table);
+    		} else {
+    			normalTables.add(table);
     		}
     	}
     	
-    	//finalTablesOrder = orderBy(finalTablesOrder, connection);
-    	
-    	for(int ii = 0; ii < tablesNames.size(); ii++) {
-    		String table = tablesNames.get(ii);
-    		if(!finalTablesOrder.contains(table)) {
-    			finalTablesOrder.add(table);
-    		}
-    	}
-    	
-    	return finalTablesOrder;
+		boolean endLoop = false;
+
+		do{
+			for (int j = 0; j < tablesWithForeignKeys.size(); j++) {
+				List<String> foreignKeys = new ArrayList<>();
+				foreignKeys = getForeignKeysForTable(tablesWithForeignKeys.get(j), connection);
+				boolean allIncluded = false;
+				boolean[] together = new boolean[2];
+				boolean removed = false;
+				for (int n = 0; n < foreignKeys.size(); n++) {
+					if (normalTables.contains(foreignKeys.get(n))) {
+						//allIncluded = true;
+						together[0] = true;
+					} else {
+						//allIncluded = false;
+						if(tablesWithForeignKeys.contains(foreignKeys.get(n))) {
+							//allIncluded = true;
+							removed =true;
+							normalTables.add(tablesWithForeignKeys.get(tablesWithForeignKeys.indexOf(foreignKeys.get(n))));
+							tablesWithForeignKeys.remove(tablesWithForeignKeys.get(tablesWithForeignKeys.indexOf(foreignKeys.get(n))));
+							together[1] = true;
+						}
+						else {
+							together[1] = false;
+						}
+					}
+				}
+				if(together[0] || together[1]) {
+					allIncluded = true;
+				}
+				if(!removed) {
+					if (allIncluded) {
+						normalTables.add(tablesWithForeignKeys.get(j));
+						tablesWithForeignKeys.remove(j);
+					}
+				}
+
+				
+				if (normalTables.size() == tablesNames.size()) {
+					endLoop = true;
+					break;
+				}
+			}
+		} while(!endLoop); 
+
+    	return normalTables;
     }
     
-   /* public static List<String> orderByForeignKeyCount(List<String> finalTablesOrder, Connection connection) {
-    	Statement statement = connection.createStatement();
-    	
-    	
-    	
-		ResultSet rs = statement.executeQuery("SELECT * FROM " + tableName + " LIMIT 1");
-		ResultSetMetaData rsmd = rs.getMetaData();
-		String column = "";
-		for(int i = 2 ; i < rsmd.getColumnCount(); i++) {
-			column = rsmd.getColumnName(i);
-			if(column.contains("id")) {
-				return true;
+   public static List<String> getForeignKeysForTable(String tableName, Connection connection) {
+    	Statement statement;
+    	List<String> foreignKeys = new ArrayList<>();
+		try {
+			statement = connection.createStatement();
+			ResultSet rs = statement.executeQuery("SELECT * FROM " + tableName + " LIMIT 1");
+			ResultSetMetaData rsmd = rs.getMetaData();
+			String column = "";
+			for(int i = 2 ; i < rsmd.getColumnCount(); i++) {
+				column = rsmd.getColumnName(i);
+				if(column.contains("id")) {
+					String foreignTable = column.replace("_id","");;
+					foreignKeys.add(foreignTable);
+				}
 			}
+		} catch (SQLException e) {
+			e.printStackTrace();
 		}
-    } */
+    	
+		return foreignKeys;
+    } 
     
     public static boolean chceckIfTableContainsForeignKey(String tableName, Connection connection) {
     	boolean result = false;
@@ -1528,7 +1574,7 @@ public class Migration
 			for(int i = 2 ; i < rsmd.getColumnCount(); i++) {
 				column = rsmd.getColumnName(i);
 				if(column.contains("id")) {
-					System.out.println(tableName + " : " + column);
+					//System.out.println(tableName + " : " + column);
 					return true;
 				}
 			}
@@ -1587,9 +1633,7 @@ public class Migration
 		} catch (SQLException e) {
 
 			e.printStackTrace();
-		}
-    	
-    	
+		}	
 		   String sql = "INSERT INTO " + tableName + " ("
 		              + columnNames
 		              + ") VALUES ("
