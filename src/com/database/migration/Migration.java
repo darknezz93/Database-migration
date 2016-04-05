@@ -265,127 +265,6 @@ public class Migration
         }
     }
     
-    public static boolean deleteUnusedTables(Connection connection, String targetDatabaseName, List<String> unusedTablesNames, String databaseType) {
-        boolean result = false;
-        try
-        {
-            List<String> databaseTables = getDatabaseTablesNames(connection);
-            List<String> wrongTablesNames = checkDatabaseTablesNames(databaseTables, unusedTablesNames);
-            if(!wrongTablesNames.isEmpty()) {
-                System.out.print("Selected tables does not exist : ");
-                for(int i = 0; i < wrongTablesNames.size(); i++) {
-                    System.out.print(" " + wrongTablesNames.get(i));
-                }
-                System.out.println("");
-                deleteDatabase(connection, targetDatabaseName);
-                result = false;
-            } else {
-                if(!unusedTablesNames.isEmpty()) {
-                    try
-                    {
-                        Statement statement = connection.createStatement();
-                        String query = prepareDeleteTablesQuery(unusedTablesNames, databaseType, targetDatabaseName);
-                        if(databaseType.equals("mssql") || databaseType.equals("mssql-integratedSecurity")) {
-                        	deleteConstraintsForMSSQLTables(connection, unusedTablesNames, targetDatabaseName);
-                        }
-                        statement.executeUpdate(query);
-                        result = true;
-                    }
-                    catch ( SQLException e )
-                    {
-                        e.printStackTrace();
-                        deleteDatabase(connection, targetDatabaseName);
-                    }            
-                } else {
-                	result = true;
-                }
-            }
-        }
-        catch ( SQLException e1 )
-        {
-            e1.printStackTrace();
-        }
-         
-
-        return result;
-    }
-    
-    public static void deleteDatabase(Connection connection, String databaseName) {
-        Statement statement;
-        try
-        {
-            statement = connection.createStatement();
-            String query = "DROP DATABASE " + databaseName + ";";
-            statement.executeUpdate(query);
-            connection.close();
-        }
-        catch ( SQLException e )
-        {
-            e.printStackTrace();
-        }
-
-    }
-    
-    public static void deleteConstraintsForMSSQLTables(Connection connection, List<String> unusedTablesNames, String targetDatabaseName) {
-    	for(int i = 0; i < unusedTablesNames.size(); i++) {
-    		String tableName = unusedTablesNames.get(i);
-    		String removeConstraintsQuery = prepareRemoveConstraintsQuery(targetDatabaseName, tableName);
-    		Statement statement;
-            try
-            {
-                statement = connection.createStatement();
-                statement.executeUpdate(removeConstraintsQuery);
-            }
-            catch ( SQLException e )
-            {
-                e.printStackTrace();
-            }
-    	}
-    }
-    
-    public static String prepareRemoveConstraintsQuery(String targetDatabaseName, String tableName) {
-    	String query = "";
-    	query += "DECLARE @database nvarchar(50) \n";
-    	query += "DECLARE @table nvarchar(50) \n";
-    	query += "set @database = '" + targetDatabaseName +"' \n";
-    	query += "set @table = '" + tableName + "' \n";
-    	query += "DECLARE @sql nvarchar(255) \n";
-    	query += "WHILE EXISTS(select * from INFORMATION_SCHEMA.TABLE_CONSTRAINTS where constraint_catalog = @database and table_name = @table) \n";
-    	query += "BEGIN \n";
-    	query += "select    @sql = 'ALTER TABLE ' + @table + ' DROP CONSTRAINT ' + CONSTRAINT_NAME  \n";
-    	query += "from    INFORMATION_SCHEMA.TABLE_CONSTRAINTS \n";
-    	query += "where    constraint_catalog = @database and \n";
-    	query += "table_name = @table \n";
-    	query += "exec    sp_executesql @sql \n";
-    	query += "END";
-    	
-    	return query;
-    }
-    
-    
-    public static String prepareDeleteTablesQuery(List<String> unusedTablesNames, String databaseType, String targetDatabaseName) {
-        String query = "DROP TABLE ";
-        for(int i = 0; i < unusedTablesNames.size(); i++) {
-            if(i != unusedTablesNames.size()-1) {
-            	
-            	if(databaseType.equals("postgresql")) {
-            		query += unusedTablesNames.get(i) +",";
-            	} else if(databaseType.equals("mssql") || databaseType.equals("mssql-integratedSecurity")) {
-            		query += "[" + targetDatabaseName + "].[dbo].[" + unusedTablesNames.get(i) + "]"; 
-            		//[trunk].[dbo].[User]		
-            	}          
-            } else {
-            	if(databaseType.equals("postgresql")) {
-            		//query += unusedTablesNames.get(i) +" CASCADE;";
-            		query += unusedTablesNames.get(i) +" ;";
-            	} else if(databaseType.equals("mssql") || databaseType.equals("mssql-integratedSecurity")) {
-            		query += "[" + targetDatabaseName + "].[dbo].[" + unusedTablesNames.get(i) + "]" +";";
-            	}   
-            }
-        }
-        return query;
-    }
-    
     public static List<String> checkDatabaseTablesNames(List<String> databaseTablesNames, List<String> unusedTablesNames) {
         List<String> wrongTablesNames = new ArrayList<String>();
         
@@ -554,66 +433,6 @@ public class Migration
     	return result;
     }
     
-    public static void performDatabaseCopy(Connection connection, String templateDatabaseName, String targetDatabaseName, 
-    		String databaseType, String userName, String password, String dbAddress, String adminDatabaseName) {
-        
-    	String adminDatabaseAddress =  "//" + dbAddress + "/"  + adminDatabaseName;
-    	createSchema(connection, targetDatabaseName);
-    	
-        String query = "";
-        if(databaseType.equals( "PostgreSQL" )) {
-        	String createFunctionQuery = getPostgresqlCreateFunctionQuery(templateDatabaseName, targetDatabaseName);
-            Statement statement;
-            try
-            {
-                statement = connection.createStatement();
-                //statementInvoke = connection.createStatement();
-                statement.execute(createFunctionQuery);
-            }
-            catch ( SQLException e )
-            {
-                System.out.println("Error while creating database: " + targetDatabaseName);
-                e.printStackTrace();
-                return;
-            }
-                      
-        }              
-    }
-    
-    public static boolean copyContentToSchemaTables(Connection connection, String templateDatabaseName, 
-    		String targetDatabaseName, List<String> allTablesNames, List<String> unusedTablesNames) {
-    	
-    	boolean result;
-    	Statement statement;
-    	List<String> copyTablesNames = removeElementsFromList(allTablesNames, unusedTablesNames);
-    	
-        try {
-			statement = connection.createStatement();
-	    	for(int i = 0; i < copyTablesNames.size(); i++) {
-	    		String tableName = copyTablesNames.get(i);
-	    		statement.execute("INSERT INTO " + targetDatabaseName +"." + tableName + " (SELECT * FROM " + "public." + tableName + " );");
-	    	}
-		} catch (SQLException e) {
-			e.printStackTrace();
-		}
-        result = true;
-        return result;
-    }
-    
-    public static void copyTablesToSchema(Connection connection, String templateDatabaseName, String targetDatabaseName, List<String> allTablesNames, List<String> unusedTablesNames) {
-    	Statement statement;
-        try {
-			statement = connection.createStatement();
-			
-	    	for(int i = 0; i < allTablesNames.size(); i++) {
-	    		String tableName = allTablesNames.get(i);
-	    		statement.execute("CREATE TABLE IF NOT EXISTS "+ targetDatabaseName + "." + tableName + " (LIKE " +  "public." + tableName + " INCLUDING ALL);");
-	    	}
-		} catch (SQLException e) {
-			e.printStackTrace();
-		}
-    }
-    
     public static List<String> removeElementsFromList(List<String> names, List<String> unusedNames) {
     	for(int i = 0 ; i < unusedNames.size(); i++) {
     		if(names.contains(unusedNames.get(i))) {
@@ -621,23 +440,6 @@ public class Migration
     		}
     	}
     	return names;
-    }
-    
-    public static void createSchema(Connection connection, String schemaName) {
-    	String query = "CREATE SCHEMA IF NOT EXISTS " + schemaName +";";
-    	
-    	Statement statement;
-        try
-        {
-            statement = connection.createStatement();
-            statement.execute(query);
-        }
-        catch ( SQLException e )
-        {
-            System.out.println("Error while creating database.");
-            e.printStackTrace();
-            return;
-        }
     }
     
     public static String getPostgresqlCreateFunctionQuery(String templateDatabase, String targetDatabase) {
@@ -660,36 +462,6 @@ public class Migration
     	query += "$BODY$ \n";
     	query += "LANGUAGE plpgsql VOLATILE;";	
     	return query;
-    }
-    
-    public static void createTablesAndCopyContentOfPostgreSQL(Connection connection, Connection templateConnection, String templateDatabaseName, List<String> unusedTablesNames) throws SQLException {
-    	List<String> tablesNames = getDatabaseTablesNames(templateConnection);
-    	String query = "";
-    	query += "CREATE TABLE " + tablesNames.get(0) + " (LIKE " + tablesNames.get(0) + " INCLUDING ALL);";
-    	/*for(int i = 0; i < tablesNames.size(); i++) {
-    		if(unusedTablesNames.contains(tablesNames.get(i))) {
-    			query += "CREATE TABLE " + tablesNames.get(i) + " (LIKE " + templateDatabaseName +".public." + tablesNames.get(i) + " INCLUDING ALL);";
-    		} else {
-    			query += "CREATE TABLE " + tablesNames.get(i) + " (LIKE " + templateDatabaseName +".public." + tablesNames.get(i) + " INCLUDING ALL);";
-    			query += "INSERT INTO " + tablesNames.get(i) + " SELECT * FROM" + templateDatabaseName +".public." + tablesNames.get(i)+ ";";
-    		}
-    	}*/
-    	
-    	Statement statement;
-        try
-        {
-            statement = connection.createStatement();
-            statement.execute(query);
-           
-        }
-        catch ( SQLException e )
-        {
-            System.out.println("Error while executing.");
-            e.printStackTrace();
-            return;
-        }
-    	
-    	
     }
     
     public static void createMSSQLBackup(String templateDatabaseName, Connection connection ) {
@@ -818,38 +590,6 @@ public class Migration
 			}
 		}
 	}
-    
-    public static void copyDatabaseContent(String userName, String password,  String templateDatabaseName, String targetDatabaseName) throws SQLException {
-        //mysqldump -u <user name> -p <pwd> <original db> | mysql -u <user name> <pwd> <new db>
-        final String cmd = " mysqldump -u " + userName + " -p " + password + " " + templateDatabaseName + " | mysql -u " + userName +  " -p " + password + " " + targetDatabaseName +";";
-        
-       // mysqldump -u admin -p originaldb | mysql -u backup -pPassword duplicateddb;
-        System.out.println( cmd );
-        
-        java.lang.Runtime rt = java.lang.Runtime.getRuntime();
-        try
-        {
-            java.lang.Process p = rt.exec(cmd);
-        }
-        catch ( IOException e )
-        {
-            e.printStackTrace();
-        }      
-    }
-    
-    public static String getValuesString(ResultSetMetaData resultMetaData) throws SQLException {
-        //VALUES (?,?,?)
-        int counter = resultMetaData.getColumnCount();
-        String values = " VALUES (";
-        for(int i = 0 ; i < counter; i++) {
-            if(i != counter-1) {
-                values += "?,";
-            } else {
-                values += "?);";
-            }
-        }
-        return values;
-    }
     
     
     public static List<String> getDatabaseTablesNames(Connection connection) throws SQLException {
@@ -1467,9 +1207,7 @@ public class Migration
 	    		List<PreparedStatement> preparedStatements = prepareInsertStatement(insert, rs, connectionCopy);
 	    		for(int j = 0 ; j < preparedStatements.size(); j++) {
 	    			preparedStatements.get(j).execute();
-	    		}
-	    		
-				
+	    		}	
 	    	}
 			result = true;
 			
