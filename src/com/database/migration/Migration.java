@@ -1249,7 +1249,7 @@ public class Migration
 		        List<String> foreignsKeys = getForeignKeysForTable( tableName, connection );
 		        
 		        
-		        if(checkIfListContainsAllElements( foreignsKeys, normalTables )) {
+		        if(checkIfListContainsAllElements( foreignsKeys, normalTables, tableName )) {
 		            normalTables.add( tableName );
 		            tablesWithForeignKeys.remove( tableName );
 		            counter = normalTables.size();
@@ -1258,7 +1258,15 @@ public class Migration
 		    
 		    if(tmpCounter == counter) {
 	              for(int k = 0; k < tablesWithForeignKeys.size(); k++) {
-	                    normalTables.add(tablesWithForeignKeys.get(k));
+	                 /* String tableName = tablesWithForeignKeys.get(k);
+	                  List<String> foreignsKeys = getForeignKeysForTable( tableName, connection );
+	                  System.out.println( "Klucze obce tabeli: " + tableName );
+	                  for(int a = 0 ; a < foreignsKeys.size(); a++) {
+	                      System.out.println( foreignsKeys.get( a ) );
+	                  }*/
+	                  
+	                  normalTables.add( tablesWithForeignKeys.get( k ));
+	                 // normalTables.add(tablesWithForeignKeys.get(k));
 	                }
 		        endLoop = true;
 		    }
@@ -1301,7 +1309,7 @@ public class Migration
     }
     
     
-    public static boolean checkIfListContainsAllElements(List<String> elements, List<String> list) {
+    public static boolean checkIfListContainsAllElements(List<String> elements, List<String> list, String tableName) {
         for(int i = 0; i < elements.size(); i++) {
             if(!list.contains( elements.get( i ) )) {
                 return false;
@@ -1375,25 +1383,28 @@ public class Migration
 		try {
 			statement = connection.createStatement();
 			DatabaseMetaData dm = connection.getMetaData();
-			ResultSet tableForeignKeys = dm.getExportedKeys( null, null, tableName );
+			ResultSet tableForeignKeys = dm.getImportedKeys( null, null, tableName );
 			ResultSet rs = statement.executeQuery("SELECT * FROM " + tableName + " LIMIT 1");
 			ResultSetMetaData rsmd = rs.getMetaData();
-			//ResultSet keysRs = dm.getImportedKeys(null, null, tableName);
 			String column = "";
 
 			while (tableForeignKeys.next()) {
-			    String column_name = tableForeignKeys.getString("FKTABLE_NAME");
+			    String column_name = tableForeignKeys.getString("PKTABLE_NAME");
 		        foreignKeys.add(column_name);
 		    }
+			if(foreignKeys.contains( tableName )) {
+			    foreignKeys.remove( tableName );
+			}
+			
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
     	
-		/*System.out.println( "Klucze obce tabeli: " + tableName);
+		System.out.println( "Klucze obce tabeli: " + tableName);
 		for(int i = 0; i < foreignKeys.size(); i++) {
 		    System.out.println( foreignKeys.get( i ) );
 		}
-		System.out.println( "" );*/
+		System.out.println( "" );
 		return foreignKeys;
     } 
     
