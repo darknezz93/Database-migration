@@ -26,7 +26,6 @@ import java.io.Reader;
 import org.apache.commons.io.FileUtils;
 
 import java.sql.Types;
-import java.time.YearMonth;
 
 
 /**
@@ -306,7 +305,7 @@ public class Migration
             Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
             result = copyPostgresqlTablesContent(connection, connectionCopy, templateDatabaseName, targetDatabaseName, tablesToCopy);
             /**
-             * Dzia³a kopiowanie schematu bez danych do nowej bazy danych
+             * Dziaï¿½a kopiowanie schematu bez danych do nowej bazy danych
              * TODO : kopiowanie danych do nowej bazy 
              * TODO : parametry wczytywane z linii polecen
              */
@@ -1193,6 +1192,7 @@ public class Migration
 			statementCopy = connectionCopy.createStatement();
 			
 			tables = collectTablesList(tablesToCopy, connectionCopy);
+			System.out.println( "" );
 			for(int k = 0 ; k < tables.size(); k++) {
 				System.out.println(tables.get(k));
 			}
@@ -1206,6 +1206,7 @@ public class Migration
 	    		
 	    		List<PreparedStatement> preparedStatements = prepareInsertStatement(insert, rs, connectionCopy);
 	    		for(int j = 0 ; j < preparedStatements.size(); j++) {
+	    		    System.out.println( preparedStatements.get( j ) );
 	    			preparedStatements.get(j).execute();
 	    		}	
 	    	}
@@ -1226,58 +1227,146 @@ public class Migration
     	for(int i = 0; i < tablesNames.size(); i++) {
     		String table = tablesNames.get(i);
     		if(chceckIfTableContainsForeignKey(table, connection)) {
+    		   // System.out.println( "FK TABLE: " + table );
     			tablesWithForeignKeys.add(table);
     		} else {
+    		    //System.out.println( "TABLE: " + table );
     			normalTables.add(table);
     		}
     	}
     	
 		boolean endLoop = false;
+		int counter = 0;
+        int tmpCounter = 0;
+		do {
+		    
+		    System.out.println(normalTables.size());
+		    tmpCounter = normalTables.size();
+		   
+		    for(int i = 0; i < tablesWithForeignKeys.size(); i++) {
+		        
+		        String tableName = tablesWithForeignKeys.get(i);
+		        List<String> foreignsKeys = getForeignKeysForTable( tableName, connection );
+		        
+		        
+		        if(checkIfListContainsAllElements( foreignsKeys, normalTables )) {
+		            normalTables.add( tableName );
+		            tablesWithForeignKeys.remove( tableName );
+		            counter = normalTables.size();
+		        }
+		    }
+		    
+		    if(tmpCounter == counter) {
+	              for(int k = 0; k < tablesWithForeignKeys.size(); k++) {
+	                    normalTables.add(tablesWithForeignKeys.get(k));
+	                }
+		        endLoop = true;
+		    }
+		   
+		    
+		   /* System.out.println( "Normal tables : ---------------------------------------------" );
+            for(int j = 0; j < normalTables.size(); j++) {
+                System.out.println( normalTables.get( j ) );
+            }
+            
+            System.out.println( "Foreign Keys tables : ---------------------------------------------" );
+            for(int j = 0; j < tablesWithForeignKeys.size(); j++) {
+                System.out.println( tablesWithForeignKeys.get( j ) );
+            }
+            
+            System.out.println( "Foreign keys : ---------------------------------------------" );
+            List<String> tempKeys = new ArrayList<>();
+            
+            for(int j = 0; j < tablesWithForeignKeys.size(); j++) {
+               // System.out.println( tablesWithForeignKeys.get( j ) );
+                List<String> tmp = getForeignKeysForTable( tablesWithForeignKeys.get( j ), connection ) ;
+                for(int k = 0; k < tmp.size();k++) {
+                    tempKeys.add( tmp.get( k ) );
+                }
+            }
+            
+            for(int j = 0; j < tempKeys.size(); j++) {
+                System.out.println( tempKeys.get( j ) );
+            }  */
+		    
+		    if(normalTables.size() == tablesNames.size()) {
+		        endLoop = true;
+		    }
+		    
+		} while(!endLoop);
+		
+		
+		return normalTables;
 
-		do{
-			for (int j = 0; j < tablesWithForeignKeys.size(); j++) {
-				List<String> foreignKeys = new ArrayList<>();
-				foreignKeys = getForeignKeysForTable(tablesWithForeignKeys.get(j), connection);
-				boolean allIncluded = false;
-				boolean[] together = new boolean[2];
-				boolean removed = false;
-				for (int n = 0; n < foreignKeys.size(); n++) {
-					if (normalTables.contains(foreignKeys.get(n))) {
-						//allIncluded = true;
-						together[0] = true;
-					} else {
-						//allIncluded = false;
-						if(tablesWithForeignKeys.contains(foreignKeys.get(n))) {
-							//allIncluded = true;
-							removed =true;
-							normalTables.add(tablesWithForeignKeys.get(tablesWithForeignKeys.indexOf(foreignKeys.get(n))));
-							tablesWithForeignKeys.remove(tablesWithForeignKeys.get(tablesWithForeignKeys.indexOf(foreignKeys.get(n))));
-							together[1] = true;
-						}
-						else {
-							together[1] = false;
-						}
-					}
-				}
-				if(together[0] || together[1]) {
-					allIncluded = true;
-				}
-				if(!removed) {
-					if (allIncluded) {
-						normalTables.add(tablesWithForeignKeys.get(j));
-						tablesWithForeignKeys.remove(j);
-					}
-				}
-
-				
-				if (normalTables.size() == tablesNames.size()) {
-					endLoop = true;
-					break;
-				}
-			}
-		} while(!endLoop); 
-
-    	return normalTables;
+    }
+    
+    
+    public static boolean checkIfListContainsAllElements(List<String> elements, List<String> list) {
+        for(int i = 0; i < elements.size(); i++) {
+            if(!list.contains( elements.get( i ) )) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public static String getFinalTable(List<String> dirtyTables, List<String> normalTables, String dirtyTable, Connection connection) {
+        
+        boolean allKeysInDirtyTables = false;
+        List<String> foreignKeys = getForeignKeysForTable(dirtyTable, connection);
+        boolean[] checkArray = new boolean[foreignKeys.size()];
+        
+        for(int i = 0; i < checkArray.length; i++) {
+            checkArray[i] = false;
+        }
+        
+        for(int i = 0 ; i < foreignKeys.size(); i++) {
+            if(normalTables.contains(foreignKeys.get(i))) {
+                checkArray[i] = true;
+            }
+        }
+        
+        for(int i = 0; i < foreignKeys.size(); i++) {
+            if(dirtyTables.contains(foreignKeys.get(i))) {
+                
+                int secondPosition = dirtyTables.indexOf(foreignKeys.get(i));
+                String secondTable = dirtyTables.get(secondPosition);
+                List<String> secondForeignKeys = getForeignKeysForTable(secondTable, connection);
+                boolean[] checkArraySecond = new boolean[secondForeignKeys.size()];
+                
+                for(int j = 0; j < checkArraySecond.length; j++) {
+                    checkArraySecond[j] = false;
+                }
+                
+                for(int j = 0 ; j < secondForeignKeys.size(); j++) {
+                    if(normalTables.contains(secondForeignKeys.get(j))) {
+                        checkArraySecond[j] = true;
+                    }
+                }
+                
+                
+                
+                for(int j = 0; j < checkArraySecond.length; j++) {
+                    if(!checkArray[i]) {
+                        System.out.println( secondTable );
+                        getFinalTable(dirtyTables, normalTables, secondTable, connection);
+                    }
+                }
+                
+                checkArray[i] = true;
+            }
+        }
+        
+        for(int i = 0; i < checkArray.length; i++) {
+            if(!checkArray[i]) {
+                //dirtyTables.remove( dirtyTable );
+                int dirtyTablePosition = dirtyTables.indexOf( dirtyTable );
+                dirtyTable = dirtyTables.get( dirtyTablePosition + 1 );
+                System.out.println( "YYYYYYYYYY" );
+                getFinalTable(dirtyTables, normalTables, dirtyTable, connection);
+            }
+        }
+        return dirtyTable;
     }
     
    public static List<String> getForeignKeysForTable(String tableName, Connection connection) {
@@ -1285,20 +1374,26 @@ public class Migration
     	List<String> foreignKeys = new ArrayList<>();
 		try {
 			statement = connection.createStatement();
+			DatabaseMetaData dm = connection.getMetaData();
+			ResultSet tableForeignKeys = dm.getExportedKeys( null, null, tableName );
 			ResultSet rs = statement.executeQuery("SELECT * FROM " + tableName + " LIMIT 1");
 			ResultSetMetaData rsmd = rs.getMetaData();
+			//ResultSet keysRs = dm.getImportedKeys(null, null, tableName);
 			String column = "";
-			for(int i = 2 ; i < rsmd.getColumnCount(); i++) {
-				column = rsmd.getColumnName(i);
-				if(column.contains("id")) {
-					String foreignTable = column.replace("_id","");;
-					foreignKeys.add(foreignTable);
-				}
-			}
+
+			while (tableForeignKeys.next()) {
+			    String column_name = tableForeignKeys.getString("FKTABLE_NAME");
+		        foreignKeys.add(column_name);
+		    }
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
     	
+		/*System.out.println( "Klucze obce tabeli: " + tableName);
+		for(int i = 0; i < foreignKeys.size(); i++) {
+		    System.out.println( foreignKeys.get( i ) );
+		}
+		System.out.println( "" );*/
 		return foreignKeys;
     } 
     
@@ -1306,16 +1401,17 @@ public class Migration
     	boolean result = false;
     	try {
 			Statement statement = connection.createStatement();
-			ResultSet rs = statement.executeQuery("SELECT * FROM " + tableName + " LIMIT 1");
-			ResultSetMetaData rsmd = rs.getMetaData();
-			String column = "";
-			for(int i = 2 ; i < rsmd.getColumnCount(); i++) {
-				column = rsmd.getColumnName(i);
-				if(column.contains("id")) {
-					//System.out.println(tableName + " : " + column);
-					return true;
-				}
+			DatabaseMetaData dm = connection.getMetaData();
+			ResultSet tableForeignKeys = dm.getImportedKeys(null, null, tableName );
+			String column_name = "";
+            while ( tableForeignKeys.next() )
+            {
+                column_name = tableForeignKeys.getString( "FKTABLE_NAME" );
+            }
+			if(!column_name.equals("")) {
+			    result = true;
 			}
+			
 		} catch (SQLException e) {
 			e.printStackTrace();
 			return false;
@@ -1329,8 +1425,6 @@ public class Migration
     	PreparedStatement pstmt = null;
     	try {
 			ResultSetMetaData metaData = rs.getMetaData();
-			
-			
 			
 			while (rs.next()) {
 				pstmt = connectionCopy.prepareStatement(query);
