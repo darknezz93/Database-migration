@@ -15,6 +15,9 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+
+import javax.sound.sampled.TargetDataLine;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -221,7 +224,7 @@ public class Migration
 				String dbAdressCopy = dbAdress + "/" + targetDatabaseName;
 				String secondDBAdress = dbAdress + "/" + secondDatabaseName;
 				dbAdress += "/" + templateDatabaseName;
-				/*
+				
 				Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort,
 						templateDatabaseName, integratedSecurity);
 				
@@ -233,13 +236,15 @@ public class Migration
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
 						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath);
-				*/
+				
 				//Potem skopiowanie tabel z secondDatabaseName do stworzonej wczesniej bazy
 				if(databaseType.equals("postgresql")) {
 					List<String> mergeTables = readTablesNamesFromProperties("mergeTables.properties");
 					Connection secondConnection = getConnectionPostgreSQL(secondDBAdress, secondUserName, secondPassword);
 					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, userName, password);
-					result = copyTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables);
+					result = copyPostgresqlTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
+							hostAndPort, pg_dumpPath, userName, password, secondDatabaseName,
+							psqlPath, targetDatabaseName);
 					
 				} else {
 					//MSSQL
@@ -253,20 +258,141 @@ public class Migration
     }
     
     
-    public static boolean copyTablesToMergeDatabase(Connection connectionCopy, 
+    public static boolean copyPostgresqlTablesToMergeDatabase(Connection connectionCopy, 
     												Connection secondConnection, 
-    												List<String> mergeTables) {
+    												List<String> mergeTables,
+    												String hostAndPort, String pg_dumpPath, String userName,
+    												String password, String secondDatabaseName,
+    												String psqlPath, String targetDatabaseName) {
     	boolean result = false;
     	
     	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(secondConnection, mergeTables);
     	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(secondConnection, sequencesNames);
     	result = createPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);
+    	result = copyPostgresqlTablesToDatabase(hostAndPort, pg_dumpPath, userName, password, secondDatabaseName, 
+    			mergeTables, psqlPath, targetDatabaseName);
     	
-    	
-    	
-    	
+    
     	return result;
     }
+    
+    public static boolean copyPostgresqlTablesToDatabase(String hostAndPort, String pg_dumpPath,
+    		String userName, String password, String secondDatabaseName, List<String> mergeTables,
+    		String psqlPath, String targetDatabaseName) {
+    	boolean result = false;
+    	
+    	for(int i = 0 ; i < mergeTables.size(); i++) {
+        	copyPostgresqlTableSchemaToSqlFile(hostAndPort, pg_dumpPath, userName, password, 
+        			secondDatabaseName, mergeTables.get(i));    		
+    	}
+    	for(int i = 0; i < mergeTables.size(); i++) {
+    		restorePostgresqlTableFromSqlFile(hostAndPort, psqlPath, targetDatabaseName,
+    			userName, password, mergeTables.get(i));
+    	}
+    	result = true;
+    	return result;
+    }
+    
+    public static void restorePostgresqlTableFromSqlFile(String hostAndPort, String psqlPath, String targetDatabaseName,
+    		String userName, String password, String tableName) {
+    	//psql -U postgres -d testowa -1 -f "C:/Users/Adam/Desktop/table.sql
+    	String host = getHostFromAddress(hostAndPort);
+    	String port = getPortFromAddress(hostAndPort);
+    	
+        final List<String> baseCmds = new ArrayList<String>();
+        baseCmds.add(psqlPath);
+        baseCmds.add("-d");
+        baseCmds.add(targetDatabaseName);
+        baseCmds.add("-h");
+        baseCmds.add(host);
+        baseCmds.add("-p");
+        baseCmds.add(port);
+        baseCmds.add("-U");
+        baseCmds.add(userName);
+        //baseCmds.add("-v");
+        baseCmds.add("-f");
+        baseCmds.add(System.getProperty("user.home") + "/" + tableName +".sql");
+   
+        final ProcessBuilder pb = new ProcessBuilder(baseCmds);
+        
+        // Set the password
+        final Map<String, String> env = pb.environment();
+        env.put("PGPASSWORD", password);
+
+        try {
+            final Process process = pb.start();
+
+            final BufferedReader r = new BufferedReader(
+                      new InputStreamReader(process.getErrorStream()));
+            String line = r.readLine();
+            while (line != null) {
+                System.err.println(line);
+                line = r.readLine();
+            }
+            r.close();
+
+            final int dcertExitCode = process.waitFor();
+            removeFile(System.getProperty("user.home") + "/" + tableName +".sql");
+
+         } catch (IOException e) {
+            e.printStackTrace();
+            removeFile(System.getProperty("user.home") + "/" + tableName +".sql");
+         } catch (InterruptedException ie) {
+            ie.printStackTrace();
+            removeFile(System.getProperty("user.home") + "/" + tableName +".sql");
+         }
+    	
+    }
+    
+    
+    public static void copyPostgresqlTableSchemaToSqlFile(String hostAndPort, String pg_dumpPath,
+    		String userName, String password, String templateDatabaseName, String tableName) {
+    	
+    	//pg_dump -U postgres -t language dvdrental > C:/Users/Adam/Desktop/table.sql
+    	String host = getHostFromAddress(hostAndPort);
+    	String port = getPortFromAddress(hostAndPort);
+    	
+        final List<String> baseCmds = new ArrayList<String>();
+        baseCmds.add(pg_dumpPath);
+        baseCmds.add("-h");
+        baseCmds.add(host);
+        baseCmds.add("-p");
+        baseCmds.add(port);
+        baseCmds.add("-U");
+        baseCmds.add(userName);
+        baseCmds.add("-t");
+        baseCmds.add(tableName);
+        baseCmds.add("-v");
+        baseCmds.add("-f");
+        baseCmds.add(System.getProperty("user.home") + "/" + tableName +".sql");
+        baseCmds.add(templateDatabaseName);
+        final ProcessBuilder pb = new ProcessBuilder(baseCmds);
+        
+        // Set the password
+        final Map<String, String> env = pb.environment();
+        env.put("PGPASSWORD", password);
+
+        try {
+            final Process process = pb.start();
+
+            final BufferedReader r = new BufferedReader(
+                      new InputStreamReader(process.getErrorStream()));
+            String line = r.readLine();
+            while (line != null) {
+                System.err.println(line);
+                line = r.readLine();
+            }
+            r.close();
+
+            final int dcertExitCode = process.waitFor();
+
+         } catch (IOException e) {
+            e.printStackTrace();
+         } catch (InterruptedException ie) {
+            ie.printStackTrace();
+         }
+    }
+    
     
     public static boolean createPostgresqlSequences(Connection connection, List<String> sequencesNames,
     												List<Long> startsWithNumbers) {
@@ -275,7 +401,7 @@ public class Migration
 			Statement statement = connection.createStatement();
 			for(int i = 0; i < sequencesNames.size(); i++) {
 				String query = "CREATE SEQUENCE " + sequencesNames.get(i) + " START " +
-												String.valueOf(startsWithNumbers.get(i));
+												String.valueOf(startsWithNumbers.get(i) + 1);
 				statement.execute(query);
 			}
 			result = true;
