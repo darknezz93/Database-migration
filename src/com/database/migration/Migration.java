@@ -543,27 +543,74 @@ public class Migration
         if(databaseType.equals("Microsoft SQL Server")) {
         	String dbAddress = "//" + hostAndPort;
         	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
+        	System.out.println(allTablesNames.size());
         	createDatabaseMigrationDirectory();
         	createDatabaseMsSQL(targetDatabaseName, templateDatabaseName,dbAddress,userName, password, integratedSecurity, hostAndPort);
         	
         	Connection connectionCopy = getConnectionMsSQL(dbAddress, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
         	copyMsSQLTablesSchemaToTargetDatabase(connection, connectionCopy);
+        	System.out.println("A");
         	result = copyMsSQLTablesContent(connectionCopy, templateDatabaseName, tablesToCopy);
+        	System.out.println("B");
         	connectionCopy.close();
         	
         } else if(databaseType.equals("PostgreSQL")) {
         	String dbAddress = "//" + hostAndPort + "/" + targetDatabaseName;
         	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
         	
+        	//kopiowany jest schemat (sekwencje przy kopiowaniu s¹ zerowane)
             result = copyPostgreSQLSchemaToSQLFile(templateDatabaseName, pg_dumpPath, hostAndPort, userName, password);
         	createDatabasePostgresqlWithConnection(connection, targetDatabaseName);
             result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, hostAndPort, userName, password, psqlPath);
+        	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(connection, tablesToCopy);
+        	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(connection, sequencesNames);
+        	for(int i = 0 ; i < startsWithNumbers.size(); i++) {
+        		System.out.println("Start number: " +startsWithNumbers.get(i));
+        	}
+        	System.out.println(sequencesNames.size() + "," + startsWithNumbers.size());
+            
+        	//update na sekwencjach i ustawienie STARTS WITH z poprzedniej bazy
             Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
+        	//result = removeSequencesFromPostgresqlDatabase(connectionCopy, sequencesNames);
+        	result = updateStartWithPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);
+        	
             result = copyPostgresqlTablesContent(connection, connectionCopy, templateDatabaseName, targetDatabaseName, tablesToCopy);
             connectionCopy.close();
         }
         return result;
         
+    }
+    
+    public static boolean updateStartWithPostgresqlSequences(Connection connection, List<String> sequencesNames,
+    														List<Long> startsWithNumbers) {
+    	boolean result = false;
+    	for(int i = 0; i < sequencesNames.size(); i++) {
+    		try {
+				Statement statement = connection.createStatement();
+				String query = "ALTER SEQUENCE " + sequencesNames.get(i) + " RESTART WITH " + (startsWithNumbers.get(i) + 1);
+				System.out.println(query);
+				statement.execute(query);
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}
+    		result = true;
+    	}
+    	return result;
+    }
+    
+    public static boolean removeSequencesFromPostgresqlDatabase(Connection connection, List<String> sequencesNames) {
+    	boolean result = false;
+    	for(int i = 0; i < sequencesNames.size(); i++) {
+    		try {
+				Statement statement = connection.createStatement();
+				String query = "DROP SEQUENCE IF EXISTS " + sequencesNames.get(i);
+				statement.execute(query);
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}
+    		result = true;
+    	}
+    	return result;
     }
     
     public static boolean restoreDatabaseSchemaFromSQLFile(String targetDatabaseName, String hostAndPort, String userName, String password, String psqlPath) {
@@ -854,6 +901,8 @@ public class Migration
         	rs = md.getTables(null, "dbo", "%", null);
         }
         
+        //rs.next();
+        //System.out.println(rs.getString("TABLE_NAME"));
         while (rs.next()) {
             if(rs.getString("TABLE_TYPE") != null) {
                 if(rs.getString("TABLE_TYPE").equals("TABLE")) {
@@ -1388,6 +1437,9 @@ public class Migration
     
     public static boolean copyMsSQLTablesContent(Connection connectionCopy, String templateDatabaseName,
     	List<String> tablesToCopy) {
+    	for(int i = 0; i < tablesToCopy.size(); i++) {
+    		System.out.println(tablesToCopy.get(i));
+    	}
     	boolean result = false;
     	for(int i = 0; i < tablesToCopy.size(); i++) {
     		String query = getMsSQLInsertStatement(tablesToCopy.get(i), templateDatabaseName);
