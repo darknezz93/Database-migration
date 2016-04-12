@@ -51,11 +51,12 @@ public class Migration
      * mssql/mssql-integratedSecurity clone server:port templateDBName targetDBName user password unusedTables 
      * mssql/mssql-integratedSecurity merge server:port templateDBName targetDBName user password unusedTables
      * 
-     *  postgresql 
+     *  postgresql clone
      * 
      * MERGE EXAMPLES:
      * 
-     * 
+     * postgresql merge
+     * postgresql merge schema-only
      * 
      * 
      * EXPORT
@@ -115,6 +116,7 @@ public class Migration
         String secondDatabaseName = "";
         String secondUserName = "";
         String secondPassword = "";
+        boolean schemaOnly = false;
         
         if(databaseType.equals("postgresql") || databaseType.equals("import-postgresql") || databaseType.equals("export-postgresql")) {
         	host = getPropertyFromFile("postgresql.properties", "host");// "//" + args[1];     //"localhost:5432";
@@ -242,9 +244,16 @@ public class Migration
 					List<String> mergeTables = readTablesNamesFromProperties("mergeTables.properties");
 					Connection secondConnection = getConnectionPostgreSQL(secondDBAdress, secondUserName, secondPassword);
 					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, userName, password);
+					if(args.length == 3) {
+						if(!args[2].equals("schema-only")) {
+							System.out.println("Unknown argument value: " + args[2]);
+							return;
+						}
+						schemaOnly = true;
+					}
 					result = copyPostgresqlTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
 							hostAndPort, pg_dumpPath, userName, password, secondDatabaseName,
-							psqlPath, targetDatabaseName);
+							psqlPath, targetDatabaseName, schemaOnly);
 					
 				} else {
 					//MSSQL
@@ -263,27 +272,27 @@ public class Migration
     												List<String> mergeTables,
     												String hostAndPort, String pg_dumpPath, String userName,
     												String password, String secondDatabaseName,
-    												String psqlPath, String targetDatabaseName) {
+    												String psqlPath, String targetDatabaseName,
+    												boolean schemaOnly) {
     	boolean result = false;
     	
     	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(secondConnection, mergeTables);
     	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(secondConnection, sequencesNames);
-    	result = createPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);
+    	result = createPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers, schemaOnly);
     	result = copyPostgresqlTablesToDatabase(hostAndPort, pg_dumpPath, userName, password, secondDatabaseName, 
-    			mergeTables, psqlPath, targetDatabaseName);
-    	
+    			mergeTables, psqlPath, targetDatabaseName, schemaOnly);
     
     	return result;
     }
     
     public static boolean copyPostgresqlTablesToDatabase(String hostAndPort, String pg_dumpPath,
     		String userName, String password, String secondDatabaseName, List<String> mergeTables,
-    		String psqlPath, String targetDatabaseName) {
+    		String psqlPath, String targetDatabaseName, boolean schemaOnly) {
     	boolean result = false;
     	
     	for(int i = 0 ; i < mergeTables.size(); i++) {
         	copyPostgresqlTableSchemaToSqlFile(hostAndPort, pg_dumpPath, userName, password, 
-        			secondDatabaseName, mergeTables.get(i));    		
+        			secondDatabaseName, mergeTables.get(i), schemaOnly);    		
     	}
     	for(int i = 0; i < mergeTables.size(); i++) {
     		restorePostgresqlTableFromSqlFile(hostAndPort, psqlPath, targetDatabaseName,
@@ -346,7 +355,7 @@ public class Migration
     
     
     public static void copyPostgresqlTableSchemaToSqlFile(String hostAndPort, String pg_dumpPath,
-    		String userName, String password, String templateDatabaseName, String tableName) {
+    		String userName, String password, String templateDatabaseName, String tableName, boolean schemaOnly) {
     	
     	//pg_dump -U postgres -t language dvdrental > C:/Users/Adam/Desktop/table.sql
     	String host = getHostFromAddress(hostAndPort);
@@ -360,6 +369,9 @@ public class Migration
         baseCmds.add(port);
         baseCmds.add("-U");
         baseCmds.add(userName);
+        if(schemaOnly) {
+        	baseCmds.add("-s");
+        }
         baseCmds.add("-t");
         baseCmds.add(tableName);
         baseCmds.add("-v");
@@ -395,13 +407,19 @@ public class Migration
     
     
     public static boolean createPostgresqlSequences(Connection connection, List<String> sequencesNames,
-    												List<Long> startsWithNumbers) {
+    												List<Long> startsWithNumbers, boolean schemaOnly) {
     	boolean result = false;
+    	String query = "";
     	try {
 			Statement statement = connection.createStatement();
 			for(int i = 0; i < sequencesNames.size(); i++) {
-				String query = "CREATE SEQUENCE " + sequencesNames.get(i) + " START " +
-												String.valueOf(startsWithNumbers.get(i) + 1);
+				
+				if(schemaOnly) {
+					query = "CREATE SEQUENCE " + sequencesNames.get(i) + " START 1";
+				} else {
+					query = "CREATE SEQUENCE " + sequencesNames.get(i) + " START " +
+							String.valueOf(startsWithNumbers.get(i) + 1);
+				}
 				statement.execute(query);
 			}
 			result = true;
@@ -564,10 +582,6 @@ public class Migration
             result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, hostAndPort, userName, password, psqlPath);
         	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(connection, tablesToCopy);
         	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(connection, sequencesNames);
-        	for(int i = 0 ; i < startsWithNumbers.size(); i++) {
-        		System.out.println("Start number: " +startsWithNumbers.get(i));
-        	}
-        	System.out.println(sequencesNames.size() + "," + startsWithNumbers.size());
             
         	//update na sekwencjach i ustawienie STARTS WITH z poprzedniej bazy
             Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
