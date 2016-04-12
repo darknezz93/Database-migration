@@ -209,6 +209,7 @@ public class Migration
 					System.out.println(tablesNames.get(i));
 				}
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
+				
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
 						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath);
 
@@ -217,6 +218,9 @@ public class Migration
 				} else {
 					System.out.println("Database migration terminated.");
 				}
+				
+				
+				
 				//MERGE
 			} else if(operationType.equals("merge")) {
 				
@@ -561,15 +565,13 @@ public class Migration
         if(databaseType.equals("Microsoft SQL Server")) {
         	String dbAddress = "//" + hostAndPort;
         	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
-        	System.out.println(allTablesNames.size());
         	createDatabaseMigrationDirectory();
         	createDatabaseMsSQL(targetDatabaseName, templateDatabaseName,dbAddress,userName, password, integratedSecurity, hostAndPort);
         	
         	Connection connectionCopy = getConnectionMsSQL(dbAddress, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
         	copyMsSQLTablesSchemaToTargetDatabase(connection, connectionCopy);
-        	System.out.println("A");
+
         	result = copyMsSQLTablesContent(connectionCopy, templateDatabaseName, tablesToCopy);
-        	System.out.println("B");
         	connectionCopy.close();
         	
         } else if(databaseType.equals("PostgreSQL")) {
@@ -593,6 +595,30 @@ public class Migration
         }
         return result;
         
+    }
+    
+    public static List<String> getSchemasNamesForMSSQLTables(Connection connection, List<String> allTablesNames) throws SQLException {
+        
+    	List<String> schemasNames = new ArrayList<String>();
+    	List<String> allSchemasNames = new ArrayList<String>();
+        DatabaseMetaData md = connection.getMetaData();
+        ResultSet rs;
+
+        rs = md.getSchemas("", null);
+
+        while (rs.next()) {
+       
+            schemasNames.add(rs.getString(1));
+        }
+        
+        rs = md.getSchemas();
+        while (rs.next()) {
+            
+            allSchemasNames.add(rs.getString(1));
+        }
+        List<String> finalSchemasNames = removeElementsFromList(allSchemasNames, schemasNames);
+        
+        return finalSchemasNames;
     }
     
     public static boolean updateStartWithPostgresqlSequences(Connection connection, List<String> sequencesNames,
@@ -920,7 +946,12 @@ public class Migration
         while (rs.next()) {
             if(rs.getString("TABLE_TYPE") != null) {
                 if(rs.getString("TABLE_TYPE").equals("TABLE")) {
-                    tablesNames.add(rs.getString("TABLE_NAME"));
+                	if(databaseType.equals("PostgreSQL")) {
+                        tablesNames.add(rs.getString("TABLE_NAME"));
+                	} else {
+                        //tablesNames.add("[" + rs.getString("TABLE_CAT") + "]." +  "[" + rs.getString("TABLE_NAME") + "]");
+                        tablesNames.add(rs.getString("TABLE_NAME"));
+                	}
                 }   
             }
         }
@@ -1394,6 +1425,8 @@ public class Migration
     	query += "when 'ntext' then ''  \n";
     	query += "when 'xml' then ''  \n";
     	query += "            when 'decimal' then '(' + cast(numeric_precision as varchar) + ', ' + cast(numeric_scale as varchar) + ')'  \n";
+    	query += "            when 'geography' then ' ' ";
+    	query += "            when 'hierarchyid' then ' '";
     	query += "            else coalesce('('+case when character_maximum_length = -1 then 'MAX' else cast(character_maximum_length as varchar) end +')','') end + ' ' +  \n";
     	query += "case when exists (  \n";
     	query += "select id from syscolumns  \n";
@@ -1431,7 +1464,7 @@ public class Migration
     
     public static void copyMsSQLTablesSchemaToTargetDatabase(Connection connection, Connection connectionCopy) {
     	try {
-			List<String> tablesNames = getDatabaseTablesNames(connection);
+				List<String> tablesNames = getDatabaseTablesNames(connection);
 				String query = getMsSQLCreateTablesQuery();
 				
 				Statement statement = connection.createStatement();
@@ -1450,10 +1483,11 @@ public class Migration
     }
     
     public static boolean copyMsSQLTablesContent(Connection connectionCopy, String templateDatabaseName,
-    	List<String> tablesToCopy) {
+    	List<String> tablesToCopy) throws SQLException {
     	for(int i = 0; i < tablesToCopy.size(); i++) {
     		System.out.println(tablesToCopy.get(i));
     	}
+    	
     	boolean result = false;
     	for(int i = 0; i < tablesToCopy.size(); i++) {
     		String query = getMsSQLInsertStatement(tablesToCopy.get(i), templateDatabaseName);
@@ -1470,8 +1504,10 @@ public class Migration
     	return result;
     }
     
-    public static String getMsSQLInsertStatement(String targetTableName, String templateDatabaseName) {
-    	String query = "INSERT INTO [" + targetTableName + "] SELECT * FROM [" + templateDatabaseName +"].[dbo].[" + targetTableName +"]";
+    public static String getMsSQLInsertStatement(String targetTableName, String templateDatabaseName) throws SQLException {
+    	
+    	
+    	String query = "INSERT INTO [dbo].[" + targetTableName + "]" + " SELECT * FROM [" + templateDatabaseName + "].[dbo].[" + targetTableName + "]" ;
     	return query;
     }
     
