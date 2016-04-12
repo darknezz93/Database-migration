@@ -300,7 +300,7 @@ public class Migration
     	
 		if (!schemaOnly) {
 			try {
-				result = copyMsSQLTablesContent(connectionCopy, secondDatabaseName, mergeTables);
+				result = copyMsSQLTablesContent(connectionCopy, secondDatabaseName, mergeTables, "mssql");
 			} catch (SQLException e) {
 				e.printStackTrace();
 			}
@@ -609,7 +609,7 @@ public class Migration
         	Connection connectionCopy = getConnectionMsSQL(dbAddress, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
         	copyMsSQLTablesSchemaToTargetDatabase(connection, connectionCopy);
 
-        	result = copyMsSQLTablesContent(connectionCopy, templateDatabaseName, tablesToCopy);
+        	result = copyMsSQLTablesContent(connectionCopy, templateDatabaseName, tablesToCopy, databaseType);
         	connectionCopy.close();
         	
         } else if(databaseType.equals("PostgreSQL")) {
@@ -628,7 +628,7 @@ public class Migration
         	//result = removeSequencesFromPostgresqlDatabase(connectionCopy, sequencesNames);
         	result = updateStartWithPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);
         	
-            result = copyPostgresqlTablesContent(connection, connectionCopy, templateDatabaseName, targetDatabaseName, tablesToCopy);
+            result = copyPostgresqlTablesContent(connection, connectionCopy, templateDatabaseName, targetDatabaseName, tablesToCopy, databaseType);
             connectionCopy.close();
         }
         return result;
@@ -1565,14 +1565,25 @@ public class Migration
 	}
     
     public static boolean copyMsSQLTablesContent(Connection connectionCopy, String templateDatabaseName,
-    	List<String> tablesToCopy) throws SQLException {
+    	List<String> tablesToCopy, String databaseType) throws SQLException {
+    	
+    	List<String> orderedTablesToCopy = new ArrayList<>();
+    	
     	for(int i = 0; i < tablesToCopy.size(); i++) {
     		System.out.println(tablesToCopy.get(i));
     	}
     	
+    	System.out.println("Ordered tables list: ");
+    	orderedTablesToCopy = collectTablesList(tablesToCopy, connectionCopy, databaseType, templateDatabaseName);
+    	
+    	for(int i = 0; i < orderedTablesToCopy.size(); i++) {
+    		System.out.println(orderedTablesToCopy.get(i));
+    	}
+    	
+    	
     	boolean result = false;
-    	for(int i = 0; i < tablesToCopy.size(); i++) {
-    		String query = getMsSQLInsertStatement(tablesToCopy.get(i), templateDatabaseName);
+    	for(int i = 0; i < orderedTablesToCopy.size(); i++) {
+    		String query = getMsSQLInsertStatement(orderedTablesToCopy.get(i), templateDatabaseName);
     		System.out.println(query);
     		try {
 				Statement statement = connectionCopy.createStatement();
@@ -1613,7 +1624,7 @@ public class Migration
     }
     
     public static boolean copyPostgresqlTablesContent(Connection connection, Connection connectionCopy, String templateDatabaseName,
-    		String targetDatabaseName, List<String> tablesToCopy) {
+    		String targetDatabaseName, List<String> tablesToCopy, String databaseType) {
     	
     	String tableName;
     	System.out.println("Inserting data to selected tables...");
@@ -1627,7 +1638,7 @@ public class Migration
 			statement = connection.createStatement();
 			statementCopy = connectionCopy.createStatement();
 			
-			tables = collectTablesList(tablesToCopy, connectionCopy);
+			tables = collectTablesList(tablesToCopy, connectionCopy, databaseType, "");
 			System.out.println( "" );
 			for(int k = 0 ; k < tables.size(); k++) {
 				System.out.println(tables.get(k));
@@ -1655,18 +1666,18 @@ public class Migration
     	return result;
     }
     
-    public static List<String> collectTablesList(List<String> tablesNames, Connection connection) {
+    public static List<String> collectTablesList(List<String> tablesNames, Connection connection, String databaseType, String databaseName) {
     	List<String> finalTablesOrder = new ArrayList<>();
     	List<String> tablesWithForeignKeys = new ArrayList<>();
     	List<String> normalTables = new ArrayList<>();
     	
     	for(int i = 0; i < tablesNames.size(); i++) {
     		String table = tablesNames.get(i);
-    		if(chceckIfTableContainsForeignKey(table, connection)) {
-    		   // System.out.println( "FK TABLE: " + table );
+    		if(chceckIfTableContainsForeignKey(table, connection, databaseType, databaseName)) {
+    		    System.out.println( "FK TABLE: " + table );
     			tablesWithForeignKeys.add(table);
     		} else {
-    		    //System.out.println( "TABLE: " + table );
+    		    System.out.println( "TABLE: " + table );
     			normalTables.add(table);
     		}
     	}
@@ -1682,7 +1693,7 @@ public class Migration
 		    for(int i = 0; i < tablesWithForeignKeys.size(); i++) {
 		        
 		        String tableName = tablesWithForeignKeys.get(i);
-		        List<String> foreignsKeys = getForeignKeysForTable( tableName, connection );
+		        List<String> foreignsKeys = getForeignKeysForTable( tableName, connection, databaseType);
 		        
 		        
 		        if(checkIfListContainsAllElements( foreignsKeys, normalTables, tableName )) {
@@ -1721,14 +1732,19 @@ public class Migration
         return true;
     }
     
-   public static List<String> getForeignKeysForTable(String tableName, Connection connection) {
+   public static List<String> getForeignKeysForTable(String tableName, Connection connection, String databaseType) {
     	Statement statement;
     	List<String> foreignKeys = new ArrayList<>();
 		try {
 			statement = connection.createStatement();
 			DatabaseMetaData dm = connection.getMetaData();
 			ResultSet tableForeignKeys = dm.getImportedKeys( null, null, tableName );
-			ResultSet rs = statement.executeQuery("SELECT * FROM " + tableName + " LIMIT 1");
+			ResultSet rs;
+			if(databaseType.equals("PostgreSQL")) {
+				rs = statement.executeQuery("SELECT * FROM " + tableName + " LIMIT 1");
+			} else {
+				rs = statement.executeQuery("SELECT TOP 1 * FROM " + tableName );
+			}
 			ResultSetMetaData rsmd = rs.getMetaData();
 			String column = "";
 
@@ -1752,18 +1768,26 @@ public class Migration
 		return foreignKeys;
     } 
     
-    public static boolean chceckIfTableContainsForeignKey(String tableName, Connection connection) {
+    public static boolean chceckIfTableContainsForeignKey(String tableName, Connection connection, String databaseType, String databaseName) {
     	boolean result = false;
     	try {
 			Statement statement = connection.createStatement();
 			DatabaseMetaData dm = connection.getMetaData();
-			ResultSet tableForeignKeys = dm.getImportedKeys(null, null, tableName );
+			ResultSet tableForeignKeys;
+			//System.out.println(databaseType);
+			if(databaseType.equals("PostgreSQL")) {
+				tableForeignKeys = dm.getImportedKeys(null, null, tableName);
+			} else {
+				tableForeignKeys = dm.getImportedKeys(databaseName, "dbo", tableName );
+			}
+			
 			String column_name = "";
+			List<String> columnNames = new ArrayList<>();
             while ( tableForeignKeys.next() )
             {
                 column_name = tableForeignKeys.getString( "FKTABLE_NAME" );
             }
-			if(!column_name.equals("")) {
+			if(column_name.length() != 0) {
 			    result = true;
 			}
 			
