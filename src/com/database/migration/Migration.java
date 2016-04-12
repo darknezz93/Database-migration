@@ -224,7 +224,7 @@ public class Migration
 				//MERGE
 			} else if(operationType.equals("merge")) {
 				
-				System.out.println("Merging database..." );
+				System.out.println("Merging postgresql database..." );
 				
 				//Najpierw normalna kopia pierwotnej bazy do bazy docelowej
 				String dbAdressCopy = dbAdress + "/" + targetDatabaseName;
@@ -243,6 +243,8 @@ public class Migration
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
 						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath);
 				
+				
+				
 				//Potem skopiowanie tabel z secondDatabaseName do stworzonej wczesniej bazy
 				if(databaseType.equals("postgresql")) {
 					List<String> mergeTables = readTablesNamesFromProperties("mergeTables.properties");
@@ -259,8 +261,27 @@ public class Migration
 							hostAndPort, pg_dumpPath, userName, password, secondDatabaseName,
 							psqlPath, targetDatabaseName, schemaOnly);
 					
-				} else {
+				} else if(databaseType.equals("mssql")) {
 					//MSSQL
+					List<String> mergeTables = readTablesNamesFromProperties("mergeTables.properties");
+					Connection secondConnection = getConnectionMsSQL(secondDBAdress, secondUserName, secondPassword, hostAndPort, secondDatabaseName, integratedSecurity);
+					Connection connectionCopy = getConnectionMsSQL(dbAdressCopy, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
+					System.out.println("Merging MsSQL database..." );
+					if(args.length == 3) {
+						if(!args[2].equals("schema-only")) {
+							System.out.println("Unknown argument value: " + args[2]);
+							return;
+						}
+						schemaOnly = true;
+					}
+					result = copyMsSQLTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
+								secondDatabaseName, targetDatabaseName, schemaOnly);	
+				}
+				
+				if(result) {
+					System.out.println("Database merged successfully");
+				} else {
+					System.out.println("Database merging terminated.");
 				}
 				
 			} else {
@@ -270,6 +291,23 @@ public class Migration
         }                 
     }
     
+    public static boolean copyMsSQLTablesToMergeDatabase(Connection connectionCopy, Connection secondConnection,
+    		List<String> mergeTables, String secondDatabaseName, String targetDatabaseName, boolean schemaOnly) throws SQLException {
+    	
+    	boolean result = false;
+    	
+    	result = copyMsSQLTablesToTargetDatabase(secondConnection, connectionCopy, mergeTables, targetDatabaseName);
+    	
+		if (!schemaOnly) {
+			try {
+				result = copyMsSQLTablesContent(connectionCopy, secondDatabaseName, mergeTables);
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}
+		}
+
+    	return result;
+    }
     
     public static boolean copyPostgresqlTablesToMergeDatabase(Connection connectionCopy, 
     												Connection secondConnection, 
@@ -1406,9 +1444,9 @@ public class Migration
     	query += "  AND i.[type] = 2\n";
     	query += "          FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)')\n";
     	query += "  ), '')\n";
-    	query += "  SELECT @SQL\n";
-    	query += "  \n";
-    	
+    	//query += "	print @SQL \n";
+    	query += "  SELECT @SQL \n";
+    	//query += " EXEC sys.sp_executesql @SQL";
     	return query;
     }
     
@@ -1481,6 +1519,50 @@ public class Migration
 			e.printStackTrace();
 		}
     }
+    
+	public static boolean copyMsSQLTablesToTargetDatabase(Connection connection, Connection connectionCopy, 
+			List<String> mergeTablesNames, String targetDatabaseName) throws SQLException {
+		boolean result = false;
+		try {
+			System.out.println("Merge tables names size: " + mergeTablesNames.size());
+			Statement statementCopy = connectionCopy.createStatement();
+			Statement statement = connection.createStatement();
+			
+			for(int i = 0; i < mergeTablesNames.size(); i++) {
+				//zwraca funkcjê, która po wywo³aniu zwraca odpowiednie zapytanie
+				String functionQuery = getMsSQLCreateTableQuery(mergeTablesNames.get(i));
+				ResultSet rs = statement.executeQuery(functionQuery);
+				String createTable = "";
+				
+				while(rs.next()) {
+					createTable = rs.getString(1);
+					System.out.println(rs.getString(1));
+				}
+				statementCopy.execute(createTable);
+				// dropDatabse(connectionCopy, targetDatabaseName);
+
+				//statement.execute(query);  */
+			}
+			result = true;
+		} catch (SQLException e) {
+			e.printStackTrace();
+			dropDatabse(connectionCopy, targetDatabaseName);
+		}
+		return result;
+	}
+	
+	
+	public static void dropDatabse(Connection connection, String databaseName) {
+		Statement statement;
+		try {
+			statement = connection.createStatement();
+			String query = "DROP DATABASE " + databaseName;
+			statement.execute(query);
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+	}
     
     public static boolean copyMsSQLTablesContent(Connection connectionCopy, String templateDatabaseName,
     	List<String> tablesToCopy) throws SQLException {
