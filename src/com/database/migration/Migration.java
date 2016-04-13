@@ -28,6 +28,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.file.Files;
+
 import org.apache.commons.io.FileUtils;
 import java.util.Properties;
 
@@ -62,11 +64,12 @@ public class Migration
      * EXPORT
      * 
      * export-postgresql "C:\Users\Adam\Desktop\dvdrental"  //nazwa taka sama jak nazwa bazy danych
-     * 
+     * export-mssql "C:\Users\Adam\Desktop\pubs_copy.zip"
      * 
      * IMPORT
      * 
      * import-postgresql "C:\Users\Adam\Desktop\skopiowana3000.zip"
+     * import-mssql "C:\Users\Adam\Desktop\pubs_copy.zip"
      * 
      * @param args:  mssql/mssql-integratedSecurity server:port templateDBName targetDBName user password unusedTables 
      * postgresql server:port templateDBName targetDBName user password unusedTables pg_dumpPath psqlPath
@@ -256,8 +259,8 @@ public class Migration
 					List<String> mergeTables = readTablesNamesFromProperties("mergeTables.properties");
 					Connection secondConnection = getConnectionPostgreSQL(secondDBAdress, secondUserName, secondPassword);
 					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, userName, password);
-					if(args.length == 3) {
-						if(!args[2].equals("schema-only")) {
+					if(args.length == 4) {
+						if(!args[3].equals("schema-only")) {
 							System.out.println("Unknown argument value: " + args[2]);
 							return;
 						}
@@ -321,6 +324,11 @@ public class Migration
 						result = true;
 					}
 				}
+			} else if(arguments[0].equals("import-postgresql") || arguments[0].equals("import-mssql")) {
+				result = checkIfFileExists(arguments[1]);
+				
+			} else if(arguments[0].equals("export-postgresql") || arguments[0].equals("export-mssql")) {
+				result = true;
 			} else {
 				System.out.println("Unknown argument: " + arguments[1]);
 				System.out.println("Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
@@ -328,7 +336,18 @@ public class Migration
 				result = false;
 			}
 		}
-
+		return result;
+	}
+	
+	public static boolean checkIfFileExists(String path) {
+		boolean result = false;
+		
+		String fileType = "";
+		File f = new File(path);
+		if(f.exists() && !f.isDirectory()) { 
+			result = true;
+		}
+		
 		return result;
 	}
     
@@ -670,6 +689,7 @@ public class Migration
             	tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
             }
             
+            System.out.println(tablesToCopy.size());
         	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(connection, tablesToCopy);
         	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(connection, sequencesNames);
             
@@ -1166,7 +1186,7 @@ public class Migration
 		try {
 			String filePath = System.getProperty("user.home") + File.separator + templateDatabaseName + ".backup";
 			File file = new File(System.getProperty("user.home") + File.separator + templateDatabaseName + ".backup");
-			fos = new FileOutputStream(targetZipDirectoryPath + ".zip");
+			fos = new FileOutputStream(targetZipDirectoryPath);
 			ZipOutputStream zos = new ZipOutputStream(fos);
 			addToZipFile(filePath, zos);
 			zos.close();
@@ -1773,13 +1793,11 @@ public class Migration
 			
 			if(mode.equals("force")) {
 				tables = tablesToCopy;
-				return true;
 			} else {
 				tables = collectTablesList(tablesToCopy, connectionCopy, databaseType, "");
 			}
 			
 			
-			System.out.println( "" );
 			for(int k = 0 ; k < tables.size(); k++) {
 				System.out.println(tables.get(k));
 			}
