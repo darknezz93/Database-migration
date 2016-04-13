@@ -57,8 +57,8 @@ public class Migration
      * 
      * postgresql merge
      * postgresql merge schema-only
-     * 
-     * 
+     * mssql merge
+     * mssql merge schema-only
      * EXPORT
      * 
      * export-postgresql "C:\Users\Adam\Desktop\dvdrental"  //nazwa taka sama jak nazwa bazy danych
@@ -94,13 +94,17 @@ public class Migration
         boolean integratedSecurity = false;
         List<String> tablesNames = new ArrayList<String>();
         
-        if(args.length < 2) {
-        	System.out.println("Not enough arguments provided");
+        // arg[0] = postgres/mssql; arg[1] = clone/merge
+        
+        boolean enoughArguments  = checkArguments(args);
+        if(!enoughArguments) {
+        	System.out.println("Program terminated");
         	return;
         }
         
         String databaseType = args[0];
         String operationType = args[1];
+        String mode = "";
         String dbAdress = ""; 
         String templateDatabaseName = "";
         String userName = "";
@@ -151,7 +155,7 @@ public class Migration
         }
         
         
-        
+        //-----------------------------------------------EXPORT--------------------------------------------------------------
         if(args[0].equals("export-postgresql")) {
         	if(args.length < 2) {
         		System.out.println("Not enough arguments provided.");
@@ -175,7 +179,8 @@ public class Migration
         	createMSSQLBackup(templateDatabaseName, connection);
         	addMssqlDatabaseToZipArchive(templateDatabaseName, zipPath);
         	System.out.println("Zip file created in selected location");
-        	
+        
+        //-----------------------------------------------IMPORT--------------------------------------------------------------
         } else if(args[0].equals("import-postgresql")) {
         	if(args.length  < 2) {
         		System.out.println("Not enough arguments provided.");
@@ -194,9 +199,12 @@ public class Migration
         	restoreMssqlDatabaseFromZip(templateDatabaseName, adminDatabaseName, userName, password, hostAndPort, zipPath);
         } else {
         	
+        	
+        	//----------------------------------------------CLONE-----------------------------------------------------------
 			if (operationType.equals("clone")) {
 				System.out.println("Performing database migration...");
-
+				
+				mode = args[2];
 				String dbAdressCopy = dbAdress + "/" + targetDatabaseName;
 				dbAdress += "/" + templateDatabaseName;
 
@@ -204,14 +212,11 @@ public class Migration
 						templateDatabaseName, integratedSecurity);
 				
 				tablesNames = readTablesNamesFromProperties("unusedTables.properties");
-				
-				for (int i = 0; i < tablesNames.size(); i++) {
-					System.out.println(tablesNames.get(i));
-				}
+
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
 				
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
-						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath);
+						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode);
 
 				if (result) {
 					System.out.println("Database migrated successfully.");
@@ -221,11 +226,12 @@ public class Migration
 				
 				
 				
-				//MERGE
+				//------------------------------------MERGE------------------------------------------------------------------
 			} else if(operationType.equals("merge")) {
 				
 				System.out.println("Merging postgresql database..." );
 				
+				mode = args[2];
 				//Najpierw normalna kopia pierwotnej bazy do bazy docelowej
 				String dbAdressCopy = dbAdress + "/" + targetDatabaseName;
 				String secondDBAdress = dbAdress + "/" + secondDatabaseName;
@@ -241,7 +247,7 @@ public class Migration
 				}
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
-						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath);
+						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode);
 				
 				
 				
@@ -275,7 +281,7 @@ public class Migration
 						schemaOnly = true;
 					}
 					result = copyMsSQLTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
-								secondDatabaseName, targetDatabaseName, schemaOnly);	
+								secondDatabaseName, targetDatabaseName, schemaOnly, mode);	
 				}
 				
 				if(result) {
@@ -291,8 +297,44 @@ public class Migration
         }                 
     }
     
+	public static boolean checkArguments(String[] arguments) {
+		boolean result = false;
+		if (arguments.length < 2) {
+			System.out.println("Not enough arguments provided");
+			result = false;
+		} else {
+			if (arguments[1].equals("clone") || arguments[1].equals("merge")) {
+				if (arguments.length < 3) {
+					System.out.println("Not enough arguments provided");
+					System.out.println(
+							"Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
+					System.out.println("More info: migration help");
+					result = false;
+				} else {
+					if(!arguments[2].equals("safe") && !arguments[2].equals("force")) {
+						System.out.println("Unrecognized argument: " + arguments[2]);
+						System.out.println(
+								"Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
+						System.out.println("More info: migration help");
+						result = false;
+					} else {
+						result = true;
+					}
+				}
+			} else {
+				System.out.println("Unknown argument: " + arguments[1]);
+				System.out.println("Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
+				System.out.println("More info: migration help");
+				result = false;
+			}
+		}
+
+		return result;
+	}
+    
     public static boolean copyMsSQLTablesToMergeDatabase(Connection connectionCopy, Connection secondConnection,
-    		List<String> mergeTables, String secondDatabaseName, String targetDatabaseName, boolean schemaOnly) throws SQLException {
+    		List<String> mergeTables, String secondDatabaseName, String targetDatabaseName, boolean schemaOnly,
+    		String mode) throws SQLException {
     	
     	boolean result = false;
     	
@@ -300,7 +342,7 @@ public class Migration
     	
 		if (!schemaOnly) {
 			try {
-				result = copyMsSQLTablesContent(connectionCopy, secondDatabaseName, mergeTables, "mssql");
+				result = copyMsSQLTablesContent(secondConnection, connectionCopy,targetDatabaseName, secondDatabaseName, mergeTables, "mssql", mode);
 			} catch (SQLException e) {
 				e.printStackTrace();
 			}
@@ -479,7 +521,7 @@ public class Migration
     	try {
 			Statement statement = connection.createStatement();
 			
-			System.out.println(sequencesNames.size());
+			//System.out.println(sequencesNames.size());
 	    	for(int i = 0; i < sequencesNames.size(); i++) {
 	    		
 	    		String query = "SELECT last_value FROM " + sequencesNames.get(i) ;
@@ -488,19 +530,14 @@ public class Migration
 	    		while(rs.next()) {
 	    			Long number = rs.getLong(1);
 	    			startsWithNumbers.add(number);
-	    			System.out.println(rs.getLong(1));
+	    			//System.out.println(rs.getLong(1));
 	    		}
 	    	}
 			
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
-    	
-    	for(int i = 0; i < startsWithNumbers.size(); i++) {
-    		System.out.println(startsWithNumbers.get(i));
-    	}
-    	
-    	
+	
     	return startsWithNumbers;
     	
     }
@@ -530,10 +567,9 @@ public class Migration
     		}
     	}
     	
-    	for(int i = 0; i < finalSequencesNames.size(); i++) {
+    	/*for(int i = 0; i < finalSequencesNames.size(); i++) {
     		System.out.println(finalSequencesNames.get(i));
-    	}
-    	
+    	}*/
     	return finalSequencesNames;
     }
     
@@ -595,21 +631,29 @@ public class Migration
     
     public static boolean copySchema(Connection connection, String templateDatabaseName, String targetDatabaseName,
     		String userName, String password, String hostAndPort, List<String> allTablesNames,
-    		List<String> unusedTablesNames, boolean integratedSecurity, String pg_dumpPath, String psqlPath) throws SQLException {
+    		List<String> unusedTablesNames, boolean integratedSecurity, String pg_dumpPath, String psqlPath,
+    		String mode) throws SQLException {
     	
         boolean result = false;
         DatabaseMetaData metaData = connection.getMetaData();
         String databaseType = metaData.getDatabaseProductName();
+        
         if(databaseType.equals("Microsoft SQL Server")) {
         	String dbAddress = "//" + hostAndPort;
         	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
         	createDatabaseMigrationDirectory();
         	createDatabaseMsSQL(targetDatabaseName, templateDatabaseName,dbAddress,userName, password, integratedSecurity, hostAndPort);
         	
+           // if(mode.equals("force")) {
+            	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
+            	//tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
+            //}
+        	
         	Connection connectionCopy = getConnectionMsSQL(dbAddress, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
         	copyMsSQLTablesSchemaToTargetDatabase(connection, connectionCopy);
+        	copyForeignKeysMssql(connection, connectionCopy);
 
-        	result = copyMsSQLTablesContent(connectionCopy, templateDatabaseName, tablesToCopy, databaseType);
+        	result = copyMsSQLTablesContent(connection,connectionCopy,targetDatabaseName, templateDatabaseName, tablesToCopy, databaseType, mode);
         	connectionCopy.close();
         	
         } else if(databaseType.equals("PostgreSQL")) {
@@ -620,6 +664,12 @@ public class Migration
             result = copyPostgreSQLSchemaToSQLFile(templateDatabaseName, pg_dumpPath, hostAndPort, userName, password);
         	createDatabasePostgresqlWithConnection(connection, targetDatabaseName);
             result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, hostAndPort, userName, password, psqlPath);
+            
+            if(mode.equals("force")) {
+            	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
+            	tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
+            }
+            
         	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(connection, tablesToCopy);
         	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(connection, sequencesNames);
             
@@ -628,7 +678,7 @@ public class Migration
         	//result = removeSequencesFromPostgresqlDatabase(connectionCopy, sequencesNames);
         	result = updateStartWithPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);
         	
-            result = copyPostgresqlTablesContent(connection, connectionCopy, templateDatabaseName, targetDatabaseName, tablesToCopy, databaseType);
+            result = copyPostgresqlTablesContent(connection, connectionCopy, templateDatabaseName, targetDatabaseName, tablesToCopy, databaseType, mode);
             connectionCopy.close();
         }
         return result;
@@ -666,7 +716,7 @@ public class Migration
     		try {
 				Statement statement = connection.createStatement();
 				String query = "ALTER SEQUENCE " + sequencesNames.get(i) + " RESTART WITH " + (startsWithNumbers.get(i) + 1);
-				System.out.println(query);
+				//System.out.println(query);
 				statement.execute(query);
 			} catch (SQLException e) {
 				e.printStackTrace();
@@ -1500,9 +1550,83 @@ public class Migration
     	return query;
     }
     
+    public static String getCopyFKConstrainstQueries(String tableName) {
+    	String query = "";
+    	query += "select  'ALTER TABLE '+object_name(a.parent_object_id)+ \n";
+    	query += "    	' ADD CONSTRAINT '+ a.name + \n";
+    	query += "' FOREIGN KEY (' + c.name + ') REFERENCES ' + \n";
+    	query += "object_name(b.referenced_object_id) + \n";
+    	query += " ' (' + d.name + ')' \n";
+    	query += " from    sys.foreign_keys a \n";
+    	query += "    join sys.foreign_key_columns b \n";
+    	query += "              on a.object_id=b.constraint_object_id \n";
+    	query += "    join sys.columns c \n";
+    	query += "              on b.parent_column_id = c.column_id \n";
+    	query += "         and a.parent_object_id=c.object_id \n";
+    	query += "    join sys.columns d \n";
+    	query += "              on b.referenced_column_id = d.column_id \n";
+    	query += "        and a.referenced_object_id = d.object_id \n";
+    	query += " where   object_name(b.referenced_object_id) in \n";
+    	query += " ('" + tableName + "') \n";
+    	query += " order by c.name \n";
+    	return query;
+    }
+    
+    public static void copyForeignKeysMssql(Connection connection, Connection connectionCopy) {
+    	
+    	try {
+			Statement statement = connection.createStatement();
+			Statement statementCopy = connectionCopy.createStatement();
+			
+			List<String> tablesNames = getDatabaseTablesNames(connection);
+			
+			for(int i = 0; i <tablesNames.size(); i++) {
+				//zwraca funkcjê, która po wywo³aniu zwraca odpowiednie zapytanie
+				String functionQuery = getCopyFKConstrainstQueries(tablesNames.get(i));
+				ResultSet rs = statement.executeQuery(functionQuery);
+				//String createConstraint = "";
+				
+				List<String> createConstraints = new ArrayList<>();
+				
+				while(rs.next()) {
+					createConstraints.add(rs.getString(1));
+					//System.out.println(rs.getString(1));
+				}
+				for(int j = 0; j < createConstraints.size(); j++) {
+					statementCopy.execute(createConstraints.get(j));					
+				}
+			}
+			
+			
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+    	
+    }
+    
     public static void copyMsSQLTablesSchemaToTargetDatabase(Connection connection, Connection connectionCopy) {
     	try {
-				List<String> tablesNames = getDatabaseTablesNames(connection);
+				/*List<String> tablesNames = getDatabaseTablesNames(connection);
+				
+				Statement statementCopy = connectionCopy.createStatement();
+				Statement statement = connection.createStatement();
+				
+				for(int i = 0; i < tablesNames.size(); i++) {
+					String functionQuery = getMsSQLCreateTableQuery(tablesNames.get(i));
+					
+					ResultSet rs = statement.executeQuery(functionQuery);
+					String createTable = "";
+					
+					while(rs.next()) {
+						createTable = rs.getString(1);
+						System.out.println(rs.getString(1));
+					}
+					statementCopy.execute(createTable);
+
+				}*/
+				
+				
+				// Nie kopiuje kluczy obcych
 				String query = getMsSQLCreateTablesQuery();
 				
 				Statement statement = connection.createStatement();
@@ -1546,7 +1670,8 @@ public class Migration
 			result = true;
 		} catch (SQLException e) {
 			e.printStackTrace();
-			dropDatabse(connectionCopy, targetDatabaseName);
+			connectionCopy.close();
+			dropDatabse(connection, targetDatabaseName);
 		}
 		return result;
 	}
@@ -1564,8 +1689,8 @@ public class Migration
 
 	}
     
-    public static boolean copyMsSQLTablesContent(Connection connectionCopy, String templateDatabaseName,
-    	List<String> tablesToCopy, String databaseType) throws SQLException {
+    public static boolean copyMsSQLTablesContent(Connection connection, Connection connectionCopy, String targetDatabaseName,String templateDatabaseName,
+    	List<String> tablesToCopy, String databaseType, String mode) throws SQLException {
     	
     	List<String> orderedTablesToCopy = new ArrayList<>();
     	
@@ -1574,8 +1699,13 @@ public class Migration
     	}
     	
     	System.out.println("Ordered tables list: ");
-    	orderedTablesToCopy = collectTablesList(tablesToCopy, connectionCopy, databaseType, templateDatabaseName);
+    	if(mode.equals("safe")) {
+    		orderedTablesToCopy = collectTablesList(tablesToCopy, connectionCopy, databaseType, templateDatabaseName);
+    	} else {
+    		orderedTablesToCopy = collectTablesWithoutFKException(tablesToCopy, connectionCopy, databaseType, templateDatabaseName);
+    	}
     	
+   
     	for(int i = 0; i < orderedTablesToCopy.size(); i++) {
     		System.out.println(orderedTablesToCopy.get(i));
     	}
@@ -1590,6 +1720,8 @@ public class Migration
 				statement.executeUpdate(query);
 				result = true;
 			} catch (SQLException e) {
+				connectionCopy.close();
+				dropDatabse(connection,targetDatabaseName);
 				result = false;
 				e.printStackTrace();
 			}
@@ -1622,9 +1754,10 @@ public class Migration
             return;
         }
     }
+
     
     public static boolean copyPostgresqlTablesContent(Connection connection, Connection connectionCopy, String templateDatabaseName,
-    		String targetDatabaseName, List<String> tablesToCopy, String databaseType) {
+    		String targetDatabaseName, List<String> tablesToCopy, String databaseType, String mode) throws SQLException {
     	
     	String tableName;
     	System.out.println("Inserting data to selected tables...");
@@ -1638,12 +1771,20 @@ public class Migration
 			statement = connection.createStatement();
 			statementCopy = connectionCopy.createStatement();
 			
-			tables = collectTablesList(tablesToCopy, connectionCopy, databaseType, "");
+			if(mode.equals("force")) {
+				tables = tablesToCopy;
+				return true;
+			} else {
+				tables = collectTablesList(tablesToCopy, connectionCopy, databaseType, "");
+			}
+			
+			
 			System.out.println( "" );
 			for(int k = 0 ; k < tables.size(); k++) {
 				System.out.println(tables.get(k));
 			}
 			
+			List<PreparedStatement> preparedStatements;
 			for(int i = 0; i < tables.size(); i++) {
 	    		tableName = tables.get(i);
 	    		ResultSet rs = statement.executeQuery("SELECT * FROM " + tableName);
@@ -1651,7 +1792,7 @@ public class Migration
 	    		
 	    		String insert = prepareInsertQueryForTable(rs, tableName);
 	    		
-	    		List<PreparedStatement> preparedStatements = prepareInsertStatement(insert, rs, connectionCopy);
+	    		preparedStatements = prepareInsertStatement(insert, rs, connectionCopy);
 	    		for(int j = 0 ; j < preparedStatements.size(); j++) {
 	    		    //System.out.println( preparedStatements.get( j ) );
 	    			preparedStatements.get(j).execute();
@@ -1660,7 +1801,8 @@ public class Migration
 			result = true;
 			
 		} catch (SQLException e) {
-			
+			connectionCopy.close();
+			dropDatabse(connection, targetDatabaseName);
 			e.printStackTrace();
 		}    	
     	return result;
@@ -1674,10 +1816,10 @@ public class Migration
     	for(int i = 0; i < tablesNames.size(); i++) {
     		String table = tablesNames.get(i);
     		if(chceckIfTableContainsForeignKey(table, connection, databaseType, databaseName)) {
-    		    System.out.println( "FK TABLE: " + table );
+    		    //System.out.println( "FK TABLE: " + table );
     			tablesWithForeignKeys.add(table);
     		} else {
-    		    System.out.println( "TABLE: " + table );
+    		    //System.out.println( "TABLE: " + table );
     			normalTables.add(table);
     		}
     	}
@@ -1693,7 +1835,7 @@ public class Migration
 		    for(int i = 0; i < tablesWithForeignKeys.size(); i++) {
 		        
 		        String tableName = tablesWithForeignKeys.get(i);
-		        List<String> foreignsKeys = getForeignKeysForTable( tableName, connection, databaseType);
+		        List<String> foreignsKeys = getForeignKeysForTable( tableName, connection, databaseType,databaseName);
 		        
 		        
 		        if(checkIfListContainsAllElements( foreignsKeys, normalTables, tableName )) {
@@ -1705,6 +1847,7 @@ public class Migration
 		    
 		    if(tmpCounter == counter) {
 	              for(int k = 0; k < tablesWithForeignKeys.size(); k++) {
+	            	  System.out.println("SAFE MODE: Possible exception for rows inserted into " + tablesWithForeignKeys.get(k));
 	                  normalTables.add( tablesWithForeignKeys.get( k ));
 	                }
 		        endLoop = true;
@@ -1717,11 +1860,62 @@ public class Migration
 		    
 		} while(!endLoop);
 		
-		
 		return normalTables;
 
     }
     
+    public static List<String> collectTablesWithoutFKException(List<String> tablesNames, Connection connection, String databaseType, String databaseName) {
+    	List<String> tablesWithForeignKeys = new ArrayList<>();
+    	List<String> normalTables = new ArrayList<>();
+    	for(int i = 0; i < tablesNames.size(); i++) {
+    		String table = tablesNames.get(i);
+    		if(chceckIfTableContainsForeignKey(table, connection, databaseType, databaseName)) {
+    			//System.out.println("FK TABLE: " + table);
+    			tablesWithForeignKeys.add(table);
+    		} else {
+    			//System.out.println("NORMAL TABLE: " + table);
+    			normalTables.add(table);
+    		}
+    	}
+    	
+		boolean endLoop = false;
+		int counter = 0;
+        int tmpCounter = 0;
+		do {
+			
+		    tmpCounter = normalTables.size();
+		   
+		    for(int i = 0; i < tablesWithForeignKeys.size(); i++) {
+		        
+		        String tableName = tablesWithForeignKeys.get(i);
+		        List<String> foreignsKeys = getForeignKeysForTable( tableName, connection, databaseType,databaseName);
+		        //System.out.println("Foreign keys size: " + foreignsKeys.size());
+		      
+		        if(checkIfListContainsAllElements( foreignsKeys, normalTables, tableName )) {
+		            normalTables.add( tableName );
+		            tablesWithForeignKeys.remove( tableName );
+		            counter = normalTables.size();
+		        }
+		    }
+		    
+		    //System.out.println("Tables with foreign keys size: " + tablesWithForeignKeys.size());
+		    if(tmpCounter == counter) {
+		    	for(int i = 0 ; i < tablesWithForeignKeys.size(); i++) {
+		    		System.out.println("Table: " + tablesWithForeignKeys.get(i) + " in force mode. Data not inserted becouse of FK constraints.");
+		    	}
+		        endLoop = true;
+		    }
+		   
+		    
+		    if(normalTables.size() == tablesNames.size()) {
+		        endLoop = true;
+		    }
+		    
+		} while(!endLoop);
+		
+		return normalTables;
+    	
+    }
     
     public static boolean checkIfListContainsAllElements(List<String> elements, List<String> list, String tableName) {
         for(int i = 0; i < elements.size(); i++) {
@@ -1732,24 +1926,27 @@ public class Migration
         return true;
     }
     
-   public static List<String> getForeignKeysForTable(String tableName, Connection connection, String databaseType) {
+    public static List<String> getForeignKeysForTable(String tableName, Connection connection, String databaseType,
+    		String databaseName) {
     	Statement statement;
     	List<String> foreignKeys = new ArrayList<>();
 		try {
 			statement = connection.createStatement();
 			DatabaseMetaData dm = connection.getMetaData();
-			ResultSet tableForeignKeys = dm.getImportedKeys( null, null, tableName );
+			ResultSet tableForeignKeys;
 			ResultSet rs;
 			if(databaseType.equals("PostgreSQL")) {
+				tableForeignKeys = dm.getImportedKeys( null, null, tableName );
 				rs = statement.executeQuery("SELECT * FROM " + tableName + " LIMIT 1");
 			} else {
+				tableForeignKeys = dm.getImportedKeys( databaseName, "dbo", tableName );
 				rs = statement.executeQuery("SELECT TOP 1 * FROM " + tableName );
 			}
 			ResultSetMetaData rsmd = rs.getMetaData();
 			String column = "";
 
 			while (tableForeignKeys.next()) {
-			    String column_name = tableForeignKeys.getString("PKTABLE_NAME");
+			    String column_name = tableForeignKeys.getString("PKTABLE_NAME");//
 		        foreignKeys.add(column_name);
 		    }
 			if(foreignKeys.contains( tableName )) {
@@ -1768,7 +1965,8 @@ public class Migration
 		return foreignKeys;
     } 
     
-    public static boolean chceckIfTableContainsForeignKey(String tableName, Connection connection, String databaseType, String databaseName) {
+    public static boolean chceckIfTableContainsForeignKey(String tableName, Connection connection, 
+    		String databaseType, String databaseName) {
     	boolean result = false;
     	try {
 			Statement statement = connection.createStatement();
