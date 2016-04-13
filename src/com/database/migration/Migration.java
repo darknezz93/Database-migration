@@ -99,6 +99,17 @@ public class Migration
         
         // arg[0] = postgres/mssql; arg[1] = clone/merge
         
+        if(args.length == 1) {
+        	if(args[0].equals("help")) {
+        		Help help = new Help();
+        		help.showMessage();
+        		return;
+        	} else {
+        		System.out.println("Unrecognized argument: " + args[0]);
+        		return;
+        	}
+        }
+        
         boolean enoughArguments  = checkArguments(args);
         if(!enoughArguments) {
         	System.out.println("Program terminated");
