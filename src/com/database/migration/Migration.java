@@ -63,7 +63,7 @@ public class Migration
      * mssql merge schema-only
      * EXPORT
      * 
-     * export-postgresql "C:\Users\Adam\Desktop\dvdrental"  //nazwa taka sama jak nazwa bazy danych
+     * export-postgresql "C:\Users\Adam\Desktop\dvdrental.zip"  //nazwa taka sama jak nazwa bazy danych
      * export-mssql "C:\Users\Adam\Desktop\pubs_copy.zip"
      * 
      * IMPORT
