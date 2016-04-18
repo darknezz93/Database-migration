@@ -29,8 +29,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.tools.ant.Project;
+import org.apache.tools.ant.taskdefs.SQLExec;
+
 import java.util.Properties;
 
 import java.sql.Types;
@@ -134,36 +138,49 @@ public class Migration
         String secondDatabaseName = "";
         String secondUserName = "";
         String secondPassword = "";
+        String propertiesFile = "";
         boolean schemaOnly = false;
         
+     	if(databaseType.equals("postgresql") || databaseType.equals("mssql")) {
+     		if(args.length == 5) {
+     			propertiesFile = args[4];
+     		} else {
+     			propertiesFile = args[3];
+     		}
+    		
+    	} else {
+    		propertiesFile = args[2];
+    	}
+        
         if(databaseType.equals("postgresql") || databaseType.equals("import-postgresql") || databaseType.equals("export-postgresql")) {
-        	host = getPropertyFromFile("postgresql.properties", "host");// "//" + args[1];     //"localhost:5432";
-        	port = getPropertyFromFile("postgresql.properties", "port");
-        	templateDatabaseName = getPropertyFromFile("postgresql.properties", "databaseName");
-        	targetDatabaseName = getPropertyFromFile("postgresql.properties", "targetDatabaseName");
-        	userName = getPropertyFromFile("postgresql.properties", "userName");
-        	password = getPropertyFromFile("postgresql.properties", "password");
-        	pg_dumpPath = getPropertyFromFile("postgresql.properties", "pg_dumpPath");
-        	psqlPath = getPropertyFromFile("postgresql.properties", "psqlPath");
-        	adminDatabaseName = getPropertyFromFile("postgresql.properties", "adminDatabaseName");
-        	restoreDatabaseName = getPropertyFromFile("postgresql.properties", "restoreDatabaseName");
-        	secondDatabaseName = getPropertyFromFile("postgresql.properties", "secondDatabaseName");
-        	secondUserName = getPropertyFromFile("postgresql.properties", "secondUserName");
-        	secondPassword = getPropertyFromFile("postgresql.properties", "secondPassword");
+       
+        	host = getPropertyFromFile(propertiesFile, "postgresql.host");// "//" + args[1];     //"localhost:5432";
+        	port = getPropertyFromFile(propertiesFile, "postgresql.port");
+        	templateDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.databaseName");
+        	targetDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.targetDatabaseName");
+        	userName = getPropertyFromFile(propertiesFile, "postgresql.userName");
+        	password = getPropertyFromFile(propertiesFile, "postgresql.password");
+        	pg_dumpPath = getPropertyFromFile(propertiesFile, "postgresql.pg_dumpPath");
+        	psqlPath = getPropertyFromFile(propertiesFile, "postgresql.psqlPath");
+        	adminDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.adminDatabaseName");
+        	restoreDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.restoreDatabaseName");
+        	secondDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.secondDatabaseName");
+        	secondUserName = getPropertyFromFile(propertiesFile, "postgresql.secondUserName");
+        	secondPassword = getPropertyFromFile(propertiesFile, "postgresql.secondPassword");
         	hostAndPort = host + ":" + port;
         	dbAdress = "//" + host + ":" + port;
         } else {
-        	host = getPropertyFromFile("mssql.properties", "host");
-        	port = getPropertyFromFile("mssql.properties", "port");
-        	templateDatabaseName = getPropertyFromFile("mssql.properties", "databaseName");
-        	targetDatabaseName = getPropertyFromFile("mssql.properties", "targetDatabaseName");
-        	userName = getPropertyFromFile("mssql.properties", "userName");
-        	password = getPropertyFromFile("mssql.properties", "password");
-        	adminDatabaseName = getPropertyFromFile("mssql.properties", "adminDatabaseName");
-        	integratedSecurity = getIntegratedSecurity();
-        	secondDatabaseName = getPropertyFromFile("mssql.properties", "secondDatabaseName");
-        	secondUserName = getPropertyFromFile("mssql.properties", "secondUserName");
-        	secondPassword = getPropertyFromFile("mssql.properties", "secondPassword");
+        	host = getPropertyFromFile(propertiesFile, "mssql.host");
+        	port = getPropertyFromFile(propertiesFile, "mssql.port");
+        	templateDatabaseName = getPropertyFromFile(propertiesFile, "mssql.databaseName");
+        	targetDatabaseName = getPropertyFromFile(propertiesFile, "mssql.targetDatabaseName");
+        	userName = getPropertyFromFile(propertiesFile, "mssql.userName");
+        	password = getPropertyFromFile(propertiesFile, "mssql.password");
+        	adminDatabaseName = getPropertyFromFile(propertiesFile, "mssql.adminDatabaseName");
+        	integratedSecurity = getIntegratedSecurity(propertiesFile);
+        	secondDatabaseName = getPropertyFromFile(propertiesFile, "mssql.secondDatabaseName");
+        	secondUserName = getPropertyFromFile(propertiesFile, "mssql.secondUserName");
+        	secondPassword = getPropertyFromFile(propertiesFile, "mssql.secondPassword");
         	hostAndPort = host + ":" + port;
         	dbAdress = "//" + host + ":" + port;
         }
@@ -171,7 +188,7 @@ public class Migration
         
         //-----------------------------------------------EXPORT--------------------------------------------------------------
         if(args[0].equals("export-postgresql")) {
-        	if(args.length < 2) {
+        	if(args.length < 3) {
         		System.out.println("Not enough arguments provided.");
         	} else {
         		String targetZipDirectoryPath = args[1];
@@ -196,7 +213,7 @@ public class Migration
         
         //-----------------------------------------------IMPORT--------------------------------------------------------------
         } else if(args[0].equals("import-postgresql")) {
-        	if(args.length  < 2) {
+        	if(args.length  < 3) {
         		System.out.println("Not enough arguments provided.");
         	} else {
         		String fullZipPath = args[1];
@@ -225,7 +242,11 @@ public class Migration
 				Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort,
 						templateDatabaseName, integratedSecurity);
 				
-				tablesNames = readTablesNamesFromProperties("unusedTables.properties");
+				tablesNames = readUnusedTablesNamesFromProperties(propertiesFile);
+				
+				for(String table :  tablesNames) {
+					System.out.println("Loaded table: " + table);
+				}
 
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
 				
@@ -254,7 +275,7 @@ public class Migration
 				Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort,
 						templateDatabaseName, integratedSecurity);
 				
-				tablesNames = readTablesNamesFromProperties("unusedTables.properties");
+				tablesNames = readUnusedTablesNamesFromProperties(propertiesFile);
 				
 				for (int i = 0; i < tablesNames.size(); i++) {
 					System.out.println(tablesNames.get(i));
@@ -267,23 +288,31 @@ public class Migration
 				
 				//Potem skopiowanie tabel z secondDatabaseName do stworzonej wczesniej bazy
 				if(databaseType.equals("postgresql")) {
-					List<String> mergeTables = readTablesNamesFromProperties("mergeTables.properties");
+					List<String> mergeTables = readMergeTablesNamesFromProperties(propertiesFile);
+					
+					for(String table: mergeTables) {
+						System.out.println(table);
+					}
+					
 					Connection secondConnection = getConnectionPostgreSQL(secondDBAdress, secondUserName, secondPassword);
 					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, userName, password);
-					if(args.length == 4) {
-						if(!args[3].equals("schema-only")) {
-							System.out.println("Unknown argument value: " + args[2]);
-							return;
+					if(args.length == 5) {
+						if(args[3].equals("schema-only")) {
+							schemaOnly = true;
 						}
-						schemaOnly = true;
 					}
 					result = copyPostgresqlTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
 							hostAndPort, pg_dumpPath, userName, password, secondDatabaseName,
 							psqlPath, targetDatabaseName, schemaOnly);
 					
+					connectionCopy.close();
+					secondConnection.close();
+					removePostgresqlDatabase(connection, secondDatabaseName);
+					renamePostgresqlDatabase(connection, secondDatabaseName, targetDatabaseName);
+					
 				} else if(databaseType.equals("mssql")) {
 					//MSSQL
-					List<String> mergeTables = readTablesNamesFromProperties("mergeTables.properties");
+					List<String> mergeTables = readMergeTablesNamesFromProperties(propertiesFile);
 					Connection secondConnection = getConnectionMsSQL(secondDBAdress, secondUserName, secondPassword, hostAndPort, secondDatabaseName, integratedSecurity);
 					Connection connectionCopy = getConnectionMsSQL(dbAdressCopy, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
 					System.out.println("Merging MsSQL database..." );
@@ -295,7 +324,13 @@ public class Migration
 						schemaOnly = true;
 					}
 					result = copyMsSQLTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
-								secondDatabaseName, targetDatabaseName, schemaOnly, mode);	
+								secondDatabaseName, targetDatabaseName, schemaOnly, mode);
+					
+					connectionCopy.close();
+					secondConnection.close();
+					removeMssqlDatabase(connection, secondDatabaseName);
+					renameMssqlDatabase(connection, secondDatabaseName, targetDatabaseName);
+					
 				}
 				
 				if(result) {
@@ -311,39 +346,109 @@ public class Migration
         }                 
     }
     
+    public static void removeMssqlDatabase(Connection connection, String databaseName) {
+    	String query = "DROP DATABASE " + databaseName;
+    	Statement statement;
+		try {
+			statement = connection.createStatement();
+			statement.execute(query);
+			
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    }
+    
+    public static void renameMssqlDatabase(Connection connection, String newDbName, String oldDbName) {
+    	String query = "ALTER DATABASE " + oldDbName + " MODIFY NAME = " + newDbName;
+    	Statement statement;
+		try {
+			statement = connection.createStatement();
+	    	statement.execute(query);
+	    	
+		} catch (SQLException e) {
+			
+			e.printStackTrace();
+		}
+    }
+    
+    
+    
+    public static void renamePostgresqlDatabase(Connection connection, String newDbName, String oldDbName) {
+    	String query = "ALTER DATABASE " + oldDbName + " RENAME TO " + newDbName;
+    	Statement statement;
+		try {
+			statement = connection.createStatement();
+	    	statement.execute(query);
+	    	
+		} catch (SQLException e) {
+			
+			e.printStackTrace();
+		}
+
+    }
+    
+    public static void removePostgresqlDatabase(Connection connection, String databaseName) {
+    	String query = "DROP DATABASE IF EXISTS " + databaseName;
+    	Statement statement;
+		try {
+			statement = connection.createStatement();
+			statement.execute(query);
+			
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    	
+    }
+    
 	public static boolean checkArguments(String[] arguments) {
 		boolean result = false;
-		if (arguments.length < 2) {
+		if (arguments.length < 3) {
 			System.out.println("Not enough arguments provided");
 			result = false;
 		} else {
 			if (arguments[1].equals("clone") || arguments[1].equals("merge")) {
-				if (arguments.length < 3) {
+				if (arguments.length < 4) {
+					
+				
 					System.out.println("Not enough arguments provided");
 					System.out.println(
-							"Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
-					System.out.println("More info: migration help");
+							"Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force propertiesPath");
+					System.out.println("More info: help");
 					result = false;
 				} else {
 					if(!arguments[2].equals("safe") && !arguments[2].equals("force")) {
 						System.out.println("Unrecognized argument: " + arguments[2]);
 						System.out.println(
-								"Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
-						System.out.println("More info: migration help");
-						result = false;
+								"Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force propertiesPath");
+						System.out.println("More info: help");
+						result = checkIfFileExists(arguments[3]);
+						if(!result) {
+							System.out.println("File does not exists: " + arguments[3]);
+						}
 					} else {
 						result = true;
 					}
 				}
 			} else if(arguments[0].equals("import-postgresql") || arguments[0].equals("import-mssql")) {
 				result = checkIfFileExists(arguments[1]);
+				if(!checkIfFileExists(arguments[2])) {
+					System.out.println("File does not exists: " + arguments[1]);
+					result = false;
+				}
 				
 			} else if(arguments[0].equals("export-postgresql") || arguments[0].equals("export-mssql")) {
-				result = true;
+				result = checkIfFileExists(arguments[1]);
+				if(!checkIfFileExists(arguments[2])) {
+					System.out.println("File does not exists: " + arguments[1]);
+					result = false;
+				}
+				
 			} else {
 				System.out.println("Unknown argument: " + arguments[1]);
 				System.out.println("Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
-				System.out.println("More info: migration help");
+				System.out.println("More info: help");
 				result = false;
 			}
 		}
@@ -414,6 +519,41 @@ public class Migration
     	}
     	result = true;
     	return result;
+    }
+    
+    
+    private static void executeSql(String path, Connection connection) throws SQLException {
+    	  byte[] encoded;
+		try {
+			encoded = Files.readAllBytes(Paths.get(path));
+			String query =  new String(encoded, "UTF8");
+			
+			Statement statement = connection.createStatement();
+			statement.execute(query);
+			
+		} catch (IOException e) {
+		
+			e.printStackTrace();
+		}
+    	  
+    	/*final class SqlExecuter extends SQLExec {
+            public SqlExecuter() {
+                Project project = new Project();
+                project.init();
+                setProject(project);
+                setTaskType("sql");
+                setTaskName("sql");
+            }
+        }
+
+        SqlExecuter executer = new SqlExecuter();
+        executer.setSrc(new File(sqlFilePath));
+        executer.setDriver("org.postgresql.Driver");
+        executer.setPassword("pguser");
+        executer.setUserid("pguser");
+        executer.setEncoding("UTF8");
+        executer.setUrl("jdbc:postgresql://localhost/plusworkflowdev_copy");
+        executer.execute(); */
     }
     
     public static void restorePostgresqlTableFromSqlFile(String hostAndPort, String psqlPath, String targetDatabaseName,
@@ -694,7 +834,10 @@ public class Migration
             result = copyPostgreSQLSchemaToSQLFile(templateDatabaseName, pg_dumpPath, hostAndPort, userName, password);
         	createDatabasePostgresqlWithConnection(connection, targetDatabaseName);
             result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, hostAndPort, userName, password, psqlPath);
-            
+            Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
+
+        	//executeSql("C:/Users/Adam/backup.sql", connectionCopy);
+        	
             if(mode.equals("force")) {
             	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
             	tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
@@ -705,10 +848,11 @@ public class Migration
         	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(connection, sequencesNames);
             
         	//update na sekwencjach i ustawienie STARTS WITH z poprzedniej bazy
-            Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
         	//result = removeSequencesFromPostgresqlDatabase(connectionCopy, sequencesNames);
         	result = updateStartWithPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);
-        	
+            
+        	//Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
+
             result = copyPostgresqlTablesContent(connection, connectionCopy, templateDatabaseName, targetDatabaseName, tablesToCopy, databaseType, mode);
             connectionCopy.close();
         }
@@ -788,10 +932,12 @@ public class Migration
         baseCmds.add(port);
         baseCmds.add("-U");
         baseCmds.add(userName);
+
         //baseCmds.add("-v");
         baseCmds.add("-f");
         baseCmds.add(System.getProperty("user.home") + "/backup.sql");
-   
+        
+        System.out.println("Restoring database...");
         final ProcessBuilder pb = new ProcessBuilder(baseCmds);
         //psql -d database_name -h localhost -U postgres < path/db.sql
         
@@ -801,14 +947,22 @@ public class Migration
 
         try {
             final Process process = pb.start();
-
             final BufferedReader r = new BufferedReader(
-                      new InputStreamReader(process.getErrorStream()));
-            String line = r.readLine();
+                      new InputStreamReader(process.getInputStream()));
+           // String line = r.readLine();
+            
+            String allLines = "";
+            String line;
+            int i = 0;
+            while ((line = r.readLine()) != null) {
+                allLines += line;
+            }
+
             while (line != null) {
                 System.err.println(line);
                 line = r.readLine();
             }
+
             r.close();
 
             final int dcertExitCode = process.waitFor();
@@ -823,6 +977,7 @@ public class Migration
             removeFile(System.getProperty("user.home") + "/backup.sql");
          }
     	
+        System.out.println("Restoring finished");
     	return result;
     }
     
@@ -2081,19 +2236,18 @@ public class Migration
     }
     
     
-    public static boolean getIntegratedSecurity() {
+    public static boolean getIntegratedSecurity(String propertiesPath) {
     	FileInputStream inputStream = null;
     	boolean result = false;
 		try {
 			Properties prop = new Properties();
-			String filePath = System.getProperty("user.home") + "/SuncodeDatabaseMigration/mssql.properties";
-			inputStream = new FileInputStream(filePath);
+			inputStream = new FileInputStream(propertiesPath);
 
 			prop.load(inputStream);
 			
 			// get the property value and print it out
 			String tmp = "";
-			tmp = prop.getProperty("integratedSecurity");
+			tmp = prop.getProperty("mssql.integratedSecurity");
 			if(tmp.equals("true")) {
 				result = true;
 			} else {
@@ -2112,18 +2266,16 @@ public class Migration
 		return result;
     }
     
-    public static String getPropertyFromFile(String fileName, String propertyName) {
+    public static String getPropertyFromFile(String filePath, String propertyName) {
     	
     	FileInputStream inputStream = null;
     	String result = "";
 		try {
 			Properties prop = new Properties();
-			String filePath = System.getProperty("user.home") + "/SuncodeDatabaseMigration/" + fileName;
 			inputStream = new FileInputStream(filePath);
 
 			prop.load(inputStream);
 			
-			// get the property value and print it out
 			result = prop.getProperty(propertyName);
 
 		} catch (Exception e) {
@@ -2139,26 +2291,24 @@ public class Migration
     }
     
     
-    public static List<String> readTablesNamesFromProperties(String fileName) {
+    public static List<String> readUnusedTablesNamesFromProperties(String filePath) {
     	List<String> unusedTablesNames = new ArrayList<>();
     	
     	FileInputStream inputStream = null;
-    	//String result = "";
 		try {
 			Properties prop = new Properties();
-			String filePath = System.getProperty("user.home") + "/SuncodeDatabaseMigration/" + fileName ;
 			inputStream = new FileInputStream(filePath);
 
 			prop.load(inputStream);
-			//get the property value and print it out
-			//result = prop.getProperty(propertyName);
+			
 			Enumeration<?> properties = prop.propertyNames();
 			while(properties.hasMoreElements()){
 				String propertyName = (String) properties.nextElement();
-				String result = prop.getProperty(propertyName);
-				unusedTablesNames.add(result);
+				if(propertyName.contains("unusedTable.")) {
+					String result = prop.getProperty(propertyName);
+					unusedTablesNames.add(result);
+				}
 			}
-
 		} catch (Exception e) {
 			System.out.println("Exception: " + e);
 		} finally {
@@ -2169,8 +2319,36 @@ public class Migration
 			}
 		}
 		return unusedTablesNames;
+    }
+    
+    public static List<String> readMergeTablesNamesFromProperties(String filePath) {
+    	List<String> unusedTablesNames = new ArrayList<>();
     	
-    	
+    	FileInputStream inputStream = null;
+		try {
+			Properties prop = new Properties();
+			inputStream = new FileInputStream(filePath);
+
+			prop.load(inputStream);
+			
+			Enumeration<?> properties = prop.propertyNames();
+			while(properties.hasMoreElements()){
+				String propertyName = (String) properties.nextElement();
+				if(propertyName.contains("mergeTable.")) {
+					String result = prop.getProperty(propertyName);
+					unusedTablesNames.add(result);
+				}
+			}
+		} catch (Exception e) {
+			System.out.println("Exception: " + e);
+		} finally {
+			try {
+				inputStream.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		return unusedTablesNames;
     }
     
 

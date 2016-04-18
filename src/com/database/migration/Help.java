@@ -51,12 +51,12 @@ public class Help {
 		
 		msg += "--- COPYING DATABASE --- \n";
 		msg += "database_type operation_type mode_type \n";
-		msg += "Example : postgresql clone force\n";
+		msg += "Example : postgresql clone force C:/database.properties\n";
 		msg += "\n";
 		
 		msg += "--- MERGING DATABASE --- \n";
 		msg += "database_type operation_type mode_type schema-only(optional)\n";
-		msg += "Example : mssql merge force schema-only\n";
+		msg += "Example : mssql merge force schema-only C:/database.properties\n";
 		msg += "\n";
 		
 		msg += "--- EXPORTING DATABASE --- \n";
@@ -71,50 +71,50 @@ public class Help {
 		msg += "\n\n";
 		
 		msg += "--- CONFIGURATION ---\n\n";
-		msg += "1. Create SuncodeDatabaseMigration directory in your home direcotry\n";
-		msg += "2. Create postgresql.properties and mssql.properties files in SuncodeDatabaseMigration\n";
-		msg += "3. Create unusedTables.properties and mergeTables files in SuncodeDatabaseMigration\n";
-		msg += "4. Add proper databases properties to created files\n\n";
+		msg += "1. Create database.properties file\n";
+		msg += "2. Add proper databases properties to created files\n\n";
 		
 		msg += "--- PROPERTIES FILES CONTENT ---\n\n";
-		msg += "Example properties of postgresql.properties file : \n\n";
-		msg += "host=localhost \n";
-		msg += "port=5432\n";
-		msg += "databaseName=exampleDB\n";
-		msg += "targetDatabaseName=exampleBbCopy\n";
-		msg += "adminDatabaseName=postgres\n";
-		msg += "restoreDatabaseName=restoreDBName\n";
-		msg += "userName=pguser\n";
-		msg += "password=pguser\n";
-		msg += "pg_dumpPath=C:\\ProgramFiles\\PostgreSQL\\9.5\\bin\\pg_dump \n";
-		msg += "psqlPath=C:\\ProgramFiles\\PostgreSQL\\9.5\\bin\\psql \n";
-		msg += "secondDatabaseName=dvdrental\n";
-		msg += "secondUserName=pguser\n";
-		msg += "secondPassword=pguser\n\n\n";
-		
-		msg += "Example properties of mssql.properties file : \n\n";
-		msg += "host=localhost\n";
-		msg += "port=1433\n";
-		msg += "databaseName=exampleDB\n";
-	    msg += "targetDatabaseName=exampleDbCopy\n";
-		msg += "restoreDatabaseName=restoreDBName\n";
-		msg += "userName=user\n";
-	    msg += "password=password\n";
-		msg += "integratedSecurity=true\n";
-		msg += "adminDatabaseName=pubs\n";
-		msg += "secondDatabaseName=Northwind\n";
-		msg += "secondUserName=adam\n";
-		msg += "secondPassword=password\n\n\n";
-		
-		msg += "Example properties of unusedTables.properties file : \n\n";
-		msg += "table1=city\n";
-		msg += "table2=customer\n\n\n";
-		
-		msg += "Example properties of mergeTables.properties file : \n\n";
-		msg += "table1=rental\n";
-		msg += "table2=cars\n";
-		
-		
+		msg += "Example properties of database.properties file : \n\n";
+		msg += "#PostgreSQL\n";
+		msg += "postgresql.host=localhost\n";
+		msg += "postgresql.port=5432\n";
+		msg += "postgresql.databaseName=plusworkflowdev_copy\n";
+		msg += "postgresql.targetDatabaseName=tempdb\n";
+		msg += "postgresql.adminDatabaseName=postgres\n";
+		msg += "postgresql.restoreDatabaseName=skopiowana3000\n";
+		msg += "postgresql.userName=pguser\n";
+		msg += "postgresql.password=pguser\n";
+		msg += "postgresql.pg_dumpPath=C:\\ProgramFiles\\PostgreSQL\\9.5\\bin\\pg_dump\n";
+		msg += "postgresql.psqlPath=C:\\ProgramFiles\\PostgreSQL\\9.5\\bin\\psql\n";
+		msg += "#Second\n";
+		msg += "postgresql.secondDatabaseName=dvdrental_copy\n";
+		msg += "postgresql.secondUserName=pguser\n";
+		msg += "postgresql.secondPassword=pguser\n";
+
+
+		msg += "#MsSQL\n";
+		msg += "mssql.host=localhost\n";
+		msg += "mssql.port=1433\n";
+		msg += "mssql.databaseName=pubs_copy\n";
+		msg += "mssql.targetDatabaseName=temp_pubs\n";
+		msg += "mssql.restoreDatabaseName=skopiowana3000\n";
+		msg += "mssql.userName=adam\n";
+		msg += "mssql.password=password\n";
+		msg += "mssql.integratedSecurity=true\n";
+		msg += "mssql.adminDatabaseName=pubs\n";
+		msg += "#Second\n";
+		msg += "mssql.secondDatabaseName=trunk\n";
+		msg += "mssql.secondUserName=adam\n";
+		msg += "mssql.secondPassword=password\n";
+
+		msg += "#Unused Tables\n";
+		msg += "unusedTable.table1=jobs\n";
+		msg += "#unusedTable.table2=address\n";
+
+		msg += "#Merge Tables\n";
+		msg += "mergeTable.table1=Point\n";
+		msg += "mergeTable.table2=User\n";
 		
 		return msg;
 	}
