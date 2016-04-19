@@ -53,7 +53,7 @@ public class Migration
      * (nazwy tabel z drugiej bazy danych w merge zapisane w pliku konfiguracyjnym mergeTables.properties)
      * (nazwy tabel z drugiej bazy danych w merge zapisane w pliku konfiguracyjnym unusedTables.properties)
      * (dane dotyczace baz baz danych zapisane w pliku postgresql.properties i mssql.properties)
-     * (wszystkie pliki .properties zapisane w katalogu SuncodeDatabaseMigration znajduj¹cym sie w katalogu domowym)
+     * (wszystkie pliki .properties zapisane w katalogu SuncodeDatabaseMigration znajdujï¿½cym sie w katalogu domowym)
      * mssql/mssql-integratedSecurity clone server:port templateDBName targetDBName user password unusedTables 
      * mssql/mssql-integratedSecurity merge server:port templateDBName targetDBName user password unusedTables
      * 
@@ -153,7 +153,7 @@ public class Migration
     	}
         
         if(databaseType.equals("postgresql") || databaseType.equals("import-postgresql") || databaseType.equals("export-postgresql")) {
-       
+            
         	host = getPropertyFromFile(propertiesFile, "postgresql.host");// "//" + args[1];     //"localhost:5432";
         	port = getPropertyFromFile(propertiesFile, "postgresql.port");
         	templateDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.databaseName");
@@ -244,10 +244,9 @@ public class Migration
 				
 				tablesNames = readUnusedTablesNamesFromProperties(propertiesFile);
 				
-				for(String table :  tablesNames) {
-					System.out.println("Loaded table: " + table);
-				}
-
+				//for(String table :  tablesNames) {
+				//	System.out.println("Loaded table: " + table);
+				//}
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
 				
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
@@ -277,9 +276,9 @@ public class Migration
 				
 				tablesNames = readUnusedTablesNamesFromProperties(propertiesFile);
 				
-				for (int i = 0; i < tablesNames.size(); i++) {
+				/*for (int i = 0; i < tablesNames.size(); i++) {
 					System.out.println(tablesNames.get(i));
-				}
+				}*/
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
 						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode);
@@ -290,9 +289,9 @@ public class Migration
 				if(databaseType.equals("postgresql")) {
 					List<String> mergeTables = readMergeTablesNamesFromProperties(propertiesFile);
 					
-					for(String table: mergeTables) {
+					/*for(String table: mergeTables) {
 						System.out.println(table);
-					}
+					}*/
 					
 					Connection secondConnection = getConnectionPostgreSQL(secondDBAdress, secondUserName, secondPassword);
 					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, userName, password);
@@ -301,6 +300,7 @@ public class Migration
 							schemaOnly = true;
 						}
 					}
+					System.out.println("Copying merge tables...");
 					result = copyPostgresqlTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
 							hostAndPort, pg_dumpPath, userName, password, secondDatabaseName,
 							psqlPath, targetDatabaseName, schemaOnly);
@@ -815,14 +815,19 @@ public class Migration
         	createDatabaseMsSQL(targetDatabaseName, templateDatabaseName,dbAddress,userName, password, integratedSecurity, hostAndPort);
         	
            // if(mode.equals("force")) {
-            	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
+            	//nie kopiuje tabel, ktï¿½re wyrzucajï¿½ fk exception podczas insertowania
             	//tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
             //}
-        	
+        	System.out.println("Getting connection to target database...");
         	Connection connectionCopy = getConnectionMsSQL(dbAddress, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
+        	
+        	System.out.println("Copying tables schema to target database...");
         	copyMsSQLTablesSchemaToTargetDatabase(connection, connectionCopy);
+        	
+        	System.out.println("Creating foreign keys...");
         	copyForeignKeysMssql(connection, connectionCopy);
-
+        	
+        	System.out.println("Performing copy of selected tables content...");
         	result = copyMsSQLTablesContent(connection,connectionCopy,targetDatabaseName, templateDatabaseName, tablesToCopy, databaseType, mode);
         	connectionCopy.close();
         	
@@ -830,29 +835,35 @@ public class Migration
         	String dbAddress = "//" + hostAndPort + "/" + targetDatabaseName;
         	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
         	
-        	//kopiowany jest schemat (sekwencje przy kopiowaniu s¹ zerowane)
+        	//kopiowany jest schemat (sekwencje przy kopiowaniu sï¿½ zerowane)
+        	System.out.println("Performing copy of PostgreSQL schema...");
             result = copyPostgreSQLSchemaToSQLFile(templateDatabaseName, pg_dumpPath, hostAndPort, userName, password);
+            
+            System.out.println("Creating target database...");
         	createDatabasePostgresqlWithConnection(connection, targetDatabaseName);
+        	
+        	System.out.println("Restoring copy of schema... ");
             result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, hostAndPort, userName, password, psqlPath);
             Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
 
         	//executeSql("C:/Users/Adam/backup.sql", connectionCopy);
         	
             if(mode.equals("force")) {
-            	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
+            	//nie kopiuje tabel, ktï¿½re wyrzucajï¿½ fk exception podczas insertowania
             	tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
             }
             
-            System.out.println(tablesToCopy.size());
+            //System.out.println(tablesToCopy.size());
         	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(connection, tablesToCopy);
         	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(connection, sequencesNames);
             
         	//update na sekwencjach i ustawienie STARTS WITH z poprzedniej bazy
         	//result = removeSequencesFromPostgresqlDatabase(connectionCopy, sequencesNames);
+        	System.out.println("Updating sequences start with numbers...");
         	result = updateStartWithPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);
             
         	//Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
-
+        	System.out.println("Performing copy of selected tables content...");
             result = copyPostgresqlTablesContent(connection, connectionCopy, templateDatabaseName, targetDatabaseName, tablesToCopy, databaseType, mode);
             connectionCopy.close();
         }
@@ -937,7 +948,7 @@ public class Migration
         baseCmds.add("-f");
         baseCmds.add(System.getProperty("user.home") + "/backup.sql");
         
-        System.out.println("Restoring database...");
+        //System.out.println("Restoring database...");
         final ProcessBuilder pb = new ProcessBuilder(baseCmds);
         //psql -d database_name -h localhost -U postgres < path/db.sql
         
@@ -1767,7 +1778,7 @@ public class Migration
 			List<String> tablesNames = getDatabaseTablesNames(connection);
 			
 			for(int i = 0; i <tablesNames.size(); i++) {
-				//zwraca funkcjê, która po wywo³aniu zwraca odpowiednie zapytanie
+				//zwraca funkcjï¿½, ktï¿½ra po wywoï¿½aniu zwraca odpowiednie zapytanie
 				String functionQuery = getCopyFKConstrainstQueries(tablesNames.get(i));
 				ResultSet rs = statement.executeQuery(functionQuery);
 				//String createConstraint = "";
@@ -1839,7 +1850,7 @@ public class Migration
 			Statement statement = connection.createStatement();
 			
 			for(int i = 0; i < mergeTablesNames.size(); i++) {
-				//zwraca funkcjê, która po wywo³aniu zwraca odpowiednie zapytanie
+				//zwraca funkcjï¿½, ktï¿½ra po wywoï¿½aniu zwraca odpowiednie zapytanie
 				String functionQuery = getMsSQLCreateTableQuery(mergeTablesNames.get(i));
 				ResultSet rs = statement.executeQuery(functionQuery);
 				String createTable = "";
@@ -1964,9 +1975,9 @@ public class Migration
 			}
 			
 			
-			for(int k = 0 ; k < tables.size(); k++) {
+			/*for(int k = 0 ; k < tables.size(); k++) {
 				System.out.println(tables.get(k));
-			}
+			}*/
 			
 			List<PreparedStatement> preparedStatements;
 			for(int i = 0; i < tables.size(); i++) {
@@ -1976,6 +1987,7 @@ public class Migration
 	    		
 	    		String insert = prepareInsertQueryForTable(rs, tableName);
 	    		
+	    		System.out.println("Inserting rows into: " + tableName);
 	    		preparedStatements = prepareInsertStatement(insert, rs, connectionCopy);
 	    		for(int j = 0 ; j < preparedStatements.size(); j++) {
 	    		    //System.out.println( preparedStatements.get( j ) );
