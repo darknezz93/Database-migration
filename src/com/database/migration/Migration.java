@@ -187,6 +187,12 @@ public class Migration
         } else {
         	host = getPropertyFromFile(propertiesFile, "mssql.host");
         	port = getPropertyFromFile(propertiesFile, "mssql.port");
+        	targetHost = getPropertyFromFile(propertiesFile, "mssql.targetHost");
+        	targetPort = getPropertyFromFile(propertiesFile, "mssql.targetPort");
+        	adminPassword = getPropertyFromFile(propertiesFile, "mssql.adminPassword");
+        	adminUserName = getPropertyFromFile(propertiesFile, "mssql.adminUserName");
+        	
+        	
         	templateDatabaseName = getPropertyFromFile(propertiesFile, "mssql.databaseName");
         	targetDatabaseName = getPropertyFromFile(propertiesFile, "mssql.targetDatabaseName");
         	userName = getPropertyFromFile(propertiesFile, "mssql.userName");
@@ -269,11 +275,17 @@ public class Migration
 
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
 				
-				Connection adminConnection = getConnectionPostgreSQL(adminDbAddress, adminUserName, adminPassword);
+				Connection adminConnection;
+				if(databaseType.equals("postgresql")) {
+					adminConnection = getConnectionPostgreSQL(adminDbAddress, adminUserName, adminPassword);	
+				} else {
+					adminConnection = getConnectionMsSQL(adminDbAddress, adminUserName, adminPassword, targetHostAndPort, adminDatabaseName, integratedSecurity);
+				}
+				
 				
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
 						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode,
-						adminConnection, targetHostAndPort);
+						adminConnection, targetHostAndPort, adminUserName, adminPassword);
 
 				if (result) {
 					System.out.println("Database migrated successfully.");
@@ -823,24 +835,26 @@ public class Migration
     public static boolean copySchema(Connection connection, String templateDatabaseName, String targetDatabaseName,
     		String userName, String password, String hostAndPort, List<String> allTablesNames,
     		List<String> unusedTablesNames, boolean integratedSecurity, String pg_dumpPath, String psqlPath,
-    		String mode, Connection adminConnection, String targetHostAndPort) throws SQLException {
+    		String mode, Connection adminConnection, String targetHostAndPort,
+    		String adminUserName, String adminPassword) throws SQLException {
     	
         boolean result = false;
         DatabaseMetaData metaData = connection.getMetaData();
         String databaseType = metaData.getDatabaseProductName();
         
         if(databaseType.equals("Microsoft SQL Server")) {
-        	String dbAddress = "//" + hostAndPort;
+        	String dbAddress = "//" + targetHostAndPort;
         	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
         	createDatabaseMigrationDirectory();
-        	createDatabaseMsSQL(targetDatabaseName, templateDatabaseName,dbAddress,userName, password, integratedSecurity, hostAndPort);
+        	
+        	createDatabaseMsSQL(adminConnection, targetDatabaseName);
         	
            // if(mode.equals("force")) {
             	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
             	//tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
             //}
         	
-        	Connection connectionCopy = getConnectionMsSQL(dbAddress, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
+        	Connection connectionCopy = getConnectionMsSQL(dbAddress, adminUserName, adminPassword, targetHostAndPort, targetDatabaseName, integratedSecurity);
         	copyMsSQLTablesSchemaToTargetDatabase(connection, connectionCopy);
         	copyForeignKeysMssql(connection, connectionCopy);
 
@@ -1552,17 +1566,16 @@ public class Migration
         }
     }
     
-    public static void createDatabaseMsSQL(String targetDatabaseName, String templateDatabaseName, String dbAdress,
-    		String userName, String password, boolean integratedSecurity, String hostAndPort) {
+    public static void createDatabaseMsSQL(Connection adminConnection, String targetDatabaseName) {
     	
-    	Connection connection = getConnectionMsSQL(dbAdress, userName, password, hostAndPort, templateDatabaseName, integratedSecurity);
+    	//Connection connection = getConnectionMsSQL(dbAdress, userName, password, hostAndPort, templateDatabaseName, integratedSecurity);
     	String query = "if db_id('" + targetDatabaseName +"') is null CREATE DATABASE " + targetDatabaseName +";";
     	System.out.println(query);
     	
     	Statement statement;
         try
         {
-            statement = connection.createStatement();
+            statement = adminConnection.createStatement();
             statement.execute(query);
            
         }
@@ -1919,7 +1932,7 @@ public class Migration
     		orderedTablesToCopy = collectTablesWithoutFKException(tablesToCopy, connectionCopy, databaseType, templateDatabaseName);
     	}
     	
-   
+    	
     	for(int i = 0; i < orderedTablesToCopy.size(); i++) {
     		System.out.println(orderedTablesToCopy.get(i));
     	}
