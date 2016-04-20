@@ -127,18 +127,26 @@ public class Migration
         String templateDatabaseName = "";
         String userName = "";
         String password = "";
+        String targetUserName = "";
+        String targetPassword = "";
         String pg_dumpPath = "";
         String psqlPath = "";
         String targetDatabaseName = "";
         String hostAndPort = "";
         String host = "";
         String port = "";
+        String targetHost = "";
+        String targetPort = "";
         String adminDatabaseName = "";
+        String adminUserName = "";
+        String adminPassword = "";
         String restoreDatabaseName = "";
         String secondDatabaseName = "";
         String secondUserName = "";
         String secondPassword = "";
         String propertiesFile = "";
+        String targetHostAndPort = "";
+        String targetDbAddress = "";
         boolean schemaOnly = false;
         
      	if(databaseType.equals("postgresql") || databaseType.equals("mssql")) {
@@ -156,6 +164,9 @@ public class Migration
        
         	host = getPropertyFromFile(propertiesFile, "postgresql.host");// "//" + args[1];     //"localhost:5432";
         	port = getPropertyFromFile(propertiesFile, "postgresql.port");
+        	targetHost = getPropertyFromFile(propertiesFile, "postgresql.targetHost");
+        	targetPort = getPropertyFromFile(propertiesFile, "postgresql.targetPort");
+        	
         	templateDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.databaseName");
         	targetDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.targetDatabaseName");
         	userName = getPropertyFromFile(propertiesFile, "postgresql.userName");
@@ -163,12 +174,16 @@ public class Migration
         	pg_dumpPath = getPropertyFromFile(propertiesFile, "postgresql.pg_dumpPath");
         	psqlPath = getPropertyFromFile(propertiesFile, "postgresql.psqlPath");
         	adminDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.adminDatabaseName");
+        	adminUserName = getPropertyFromFile(propertiesFile,  "postgresql.adminUserName");
+        	adminPassword = getPropertyFromFile(propertiesFile, "postgresql.adminPassword");
         	restoreDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.restoreDatabaseName");
         	secondDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.secondDatabaseName");
         	secondUserName = getPropertyFromFile(propertiesFile, "postgresql.secondUserName");
         	secondPassword = getPropertyFromFile(propertiesFile, "postgresql.secondPassword");
         	hostAndPort = host + ":" + port;
         	dbAdress = "//" + host + ":" + port;
+        	targetHostAndPort = targetHost + ":" + targetPort;
+        	targetDbAddress = "//" + targetHost + ":" + targetPort;
         } else {
         	host = getPropertyFromFile(propertiesFile, "mssql.host");
         	port = getPropertyFromFile(propertiesFile, "mssql.port");
@@ -236,7 +251,11 @@ public class Migration
 				System.out.println("Performing database migration...");
 				
 				mode = args[2];
-				String dbAdressCopy = dbAdress + "/" + targetDatabaseName;
+				
+				//String dbAdressCopy = dbAdress + "/" + targetDatabaseName;
+				String dbAdressCopy = targetDbAddress + "/" + targetDatabaseName;
+				String adminDbAddress = targetDbAddress + "/" + adminDatabaseName;
+				
 				dbAdress += "/" + templateDatabaseName;
 
 				Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort,
@@ -250,8 +269,11 @@ public class Migration
 
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
 				
+				Connection adminConnection = getConnectionPostgreSQL(adminDbAddress, adminUserName, adminPassword);
+				
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
-						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode);
+						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode,
+						adminConnection, targetHostAndPort);
 
 				if (result) {
 					System.out.println("Database migrated successfully.");
@@ -281,8 +303,9 @@ public class Migration
 					System.out.println(tablesNames.get(i));
 				}
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
-				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
-						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode);
+				//result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
+				//		hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode,
+				//		adminConnection, targetHostAndPort);
 				
 				
 				
@@ -371,8 +394,6 @@ public class Migration
 			e.printStackTrace();
 		}
     }
-    
-    
     
     public static void renamePostgresqlDatabase(Connection connection, String newDbName, String oldDbName) {
     	String query = "ALTER DATABASE " + oldDbName + " RENAME TO " + newDbName;
@@ -802,7 +823,7 @@ public class Migration
     public static boolean copySchema(Connection connection, String templateDatabaseName, String targetDatabaseName,
     		String userName, String password, String hostAndPort, List<String> allTablesNames,
     		List<String> unusedTablesNames, boolean integratedSecurity, String pg_dumpPath, String psqlPath,
-    		String mode) throws SQLException {
+    		String mode, Connection adminConnection, String targetHostAndPort) throws SQLException {
     	
         boolean result = false;
         DatabaseMetaData metaData = connection.getMetaData();
@@ -827,20 +848,27 @@ public class Migration
         	connectionCopy.close();
         	
         } else if(databaseType.equals("PostgreSQL")) {
+        	
         	String dbAddress = "//" + hostAndPort + "/" + targetDatabaseName;
+        	String targetDbAddress = "//" + targetHostAndPort + "/" + targetDatabaseName;
+        	
         	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
         	
         	//kopiowany jest schemat (sekwencje przy kopiowaniu s¹ zerowane)
             result = copyPostgreSQLSchemaToSQLFile(templateDatabaseName, pg_dumpPath, hostAndPort, userName, password);
-        	createDatabasePostgresqlWithConnection(connection, targetDatabaseName);
-            result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, hostAndPort, userName, password, psqlPath);
-            Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
-
+            
+         
+        	createDatabasePostgresqlWithConnection(adminConnection, targetDatabaseName);
+        	
+            result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, targetHostAndPort, userName, password, psqlPath);
+            
+            Connection connectionCopy = getConnectionPostgreSQL(targetDbAddress, userName, password);
+            
         	//executeSql("C:/Users/Adam/backup.sql", connectionCopy);
         	
             if(mode.equals("force")) {
             	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
-            	tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
+            	tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, templateDatabaseName);
             }
             
             System.out.println(tablesToCopy.size());
