@@ -299,10 +299,12 @@ public class Migration
 			} else if(operationType.equals("merge")) {
 				
 				System.out.println("Merging postgresql database..." );
+				String adminDbAddress = targetDbAddress + "/" + adminDatabaseName;
+
 				
 				mode = args[2];
 				//Najpierw normalna kopia pierwotnej bazy do bazy docelowej
-				String dbAdressCopy = dbAdress + "/" + targetDatabaseName;
+				String dbAdressCopy = targetDbAddress + "/" + targetDatabaseName;
 				String secondDBAdress = dbAdress + "/" + secondDatabaseName;
 				dbAdress += "/" + templateDatabaseName;
 				
@@ -314,10 +316,18 @@ public class Migration
 				for (int i = 0; i < tablesNames.size(); i++) {
 					System.out.println(tablesNames.get(i));
 				}
+				
+				Connection adminConnection;
+				if(databaseType.equals("postgresql")) {
+					adminConnection = getConnectionPostgreSQL(adminDbAddress, adminUserName, adminPassword);	
+				} else {
+					adminConnection = getConnectionMsSQL(adminDbAddress, adminUserName, adminPassword, targetHostAndPort, adminDatabaseName, integratedSecurity);
+				}
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
-				//result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
-				//		hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode,
-				//		adminConnection, targetHostAndPort);
+				
+				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
+						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode,
+					adminConnection, targetHostAndPort, adminUserName, adminPassword);
 				
 				
 				
@@ -329,8 +339,8 @@ public class Migration
 						System.out.println(table);
 					}
 					
-					Connection secondConnection = getConnectionPostgreSQL(secondDBAdress, secondUserName, secondPassword);
-					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, userName, password);
+					Connection secondConnection = getConnectionPostgreSQL(secondDBAdress, userName, password);
+					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, targetUserName, targetPassword);
 					if(args.length == 5) {
 						if(args[3].equals("schema-only")) {
 							schemaOnly = true;
@@ -343,7 +353,7 @@ public class Migration
 					connectionCopy.close();
 					secondConnection.close();
 					removePostgresqlDatabase(connection, secondDatabaseName);
-					renamePostgresqlDatabase(connection, secondDatabaseName, targetDatabaseName);
+					renamePostgresqlDatabase(connectionCopy, secondDatabaseName, targetDatabaseName);
 					
 				} else if(databaseType.equals("mssql")) {
 					//MSSQL
