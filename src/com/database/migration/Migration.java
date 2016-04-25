@@ -32,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.log4j.Logger;
 import org.apache.tools.ant.Project;
 import org.apache.tools.ant.taskdefs.SQLExec;
 
@@ -94,6 +95,7 @@ public class Migration
      * export-mssql databaseName userName password hostAndPort zipPath
      */
 	
+	final static Logger logger = Logger.getLogger(Migration.class);
 	
     public static void main( String[] args ) throws SQLException, ClassNotFoundException, IOException
     {
@@ -109,14 +111,14 @@ public class Migration
         		help.showMessage();
         		return;
         	} else {
-        		System.out.println("Unrecognized argument: " + args[0]);
+        		logger.info("Unrecognized argument: " + args[0]);
         		return;
         	}
         }
         
         boolean enoughArguments  = checkArguments(args);
         if(!enoughArguments) {
-        	System.out.println("Program terminated");
+    		logger.info("Program terminated: " + args[0]);
         	return;
         }
         
@@ -148,6 +150,8 @@ public class Migration
         String targetHostAndPort = "";
         String targetDbAddress = "";
         boolean schemaOnly = false;
+        boolean updateSequences = false;
+        boolean createMergeSequences = false;
         
      	if(databaseType.equals("postgresql") || databaseType.equals("mssql")) {
      		if(args.length == 5) {
@@ -180,6 +184,8 @@ public class Migration
         	secondDatabaseName = getPropertyFromFile(propertiesFile, "postgresql.secondDatabaseName");
         	secondUserName = getPropertyFromFile(propertiesFile, "postgresql.secondUserName");
         	secondPassword = getPropertyFromFile(propertiesFile, "postgresql.secondPassword");
+        	updateSequences = getBooleanFromFile(propertiesFile, "postgresql.updateSequences");
+        	createMergeSequences = getBooleanFromFile(propertiesFile, "postgresql.createMergeSequences");
         	hostAndPort = host + ":" + port;
         	dbAdress = "//" + host + ":" + port;
         	targetHostAndPort = targetHost + ":" + targetPort;
@@ -210,18 +216,17 @@ public class Migration
         //-----------------------------------------------EXPORT--------------------------------------------------------------
         if(args[0].equals("export-postgresql")) {
         	if(args.length < 3) {
-        		System.out.println("Not enough arguments provided.");
+        		logger.info("Not enough arguments provided.");
         	} else {
         		String targetZipDirectoryPath = args[1];
-        		System.out.println("Exporting database to zip file...");
+        		logger.info("Exporting database to zip file...");
                 exportPostgresToSQLFile(pg_dumpPath, host, 
                 		port, userName, password, templateDatabaseName, System.getProperty("user.home") + File.separator + templateDatabaseName + ".backup");
                 addDatabaseToZipArchive(templateDatabaseName, targetZipDirectoryPath);
         	}
             
         } else if(args[0].equals("export-mssql")) {
-        	System.out.println("Exporting mssql database to zip file");
-        	
+        	logger.info("Exporting mssql database to zip file");	
         	/**
         	 * export-mssql integratedSecurity databaseName hostAndPort zipPath
         	 */
@@ -230,15 +235,15 @@ public class Migration
         	Connection connection = getConnectionMsSQL(dbAdress, userName, password, hostAndPort, templateDatabaseName, integratedSecurity);
         	createMSSQLBackup(templateDatabaseName, connection);
         	addMssqlDatabaseToZipArchive(templateDatabaseName, zipPath);
-        	System.out.println("Zip file created in selected location");
+        	logger.info("Zip file created in selected location");
         
         //-----------------------------------------------IMPORT--------------------------------------------------------------
         } else if(args[0].equals("import-postgresql")) {
         	if(args.length  < 3) {
-        		System.out.println("Not enough arguments provided.");
+        		logger.info("Not enough arguments provided.");
         	} else {
         		String fullZipPath = args[1];
-            	System.out.println("Importing postgreSQL database from zip file...");
+        		logger.info("Importing postgreSQL database from zip file...");
             	restorePostgresqlDatabase(psqlPath, host, port, userName, password, templateDatabaseName,restoreDatabaseName, fullZipPath, adminDatabaseName);	
         	}
         	/**
@@ -247,14 +252,14 @@ public class Migration
         } else if(args[0].equals("import-mssql")) {
         	
         	String zipPath = args[1];
-        	System.out.println("Importing database from zip file...");
+        	logger.info("Importing database from zip file...");
         	restoreMssqlDatabaseFromZip(templateDatabaseName, adminDatabaseName, userName, password, hostAndPort, zipPath);
         } else {
         	
         	
         	//----------------------------------------------CLONE-----------------------------------------------------------
 			if (operationType.equals("clone")) {
-				System.out.println("Performing database migration...");
+				logger.info("Performing database migration...");
 				
 				mode = args[2];
 				
@@ -270,7 +275,7 @@ public class Migration
 				tablesNames = readUnusedTablesNamesFromProperties(propertiesFile);
 				
 				for(String table :  tablesNames) {
-					System.out.println("Loaded table: " + table);
+					logger.info("Loaded table: " + table);
 				}
 
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
@@ -285,12 +290,12 @@ public class Migration
 				
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
 						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode,
-						adminConnection, targetHostAndPort, adminUserName, adminPassword);
+						adminConnection, targetHostAndPort, adminUserName, adminPassword, updateSequences);
 
 				if (result) {
-					System.out.println("Database migrated successfully.");
+					logger.info("Database migrated successfully.");
 				} else {
-					System.out.println("Database migration terminated.");
+					logger.info("Database migration terminated.");
 				}
 				
 				
@@ -298,9 +303,9 @@ public class Migration
 				//------------------------------------MERGE------------------------------------------------------------------
 			} else if(operationType.equals("merge")) {
 				
-				System.out.println("Merging postgresql database..." );
+				logger.info("Merging postgresql database...");
 				String adminDbAddress = targetDbAddress + "/" + adminDatabaseName;
-
+				
 				
 				mode = args[2];
 				//Najpierw normalna kopia pierwotnej bazy do bazy docelowej
@@ -314,7 +319,7 @@ public class Migration
 				tablesNames = readUnusedTablesNamesFromProperties(propertiesFile);
 				
 				for (int i = 0; i < tablesNames.size(); i++) {
-					System.out.println(tablesNames.get(i));
+					logger.info("Loaded unused table from properties file: " + tablesNames.get(i));
 				}
 				
 				Connection adminConnection;
@@ -327,7 +332,7 @@ public class Migration
 				
 				result = copySchema(connection, templateDatabaseName, targetDatabaseName, userName, password,
 						hostAndPort, allTablesNames, tablesNames, integratedSecurity, pg_dumpPath, psqlPath, mode,
-					adminConnection, targetHostAndPort, adminUserName, adminPassword);
+					adminConnection, targetHostAndPort, adminUserName, adminPassword, updateSequences);
 				
 				
 				
@@ -336,11 +341,11 @@ public class Migration
 					List<String> mergeTables = readMergeTablesNamesFromProperties(propertiesFile);
 					
 					for(String table: mergeTables) {
-						System.out.println(table);
+						logger.info("Loaded merge table from properties file : " + table);
 					}
 					
 					Connection secondConnection = getConnectionPostgreSQL(secondDBAdress, userName, password);
-					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, targetUserName, targetPassword);
+					Connection connectionCopy = getConnectionPostgreSQL(dbAdressCopy, adminUserName, adminPassword); ///////////// targetUserName i targetPasswords
 					if(args.length == 5) {
 						if(args[3].equals("schema-only")) {
 							schemaOnly = true;
@@ -348,22 +353,22 @@ public class Migration
 					}
 					result = copyPostgresqlTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
 							hostAndPort, pg_dumpPath, userName, password, secondDatabaseName,
-							psqlPath, targetDatabaseName, schemaOnly);
+							psqlPath, targetDatabaseName, schemaOnly, createMergeSequences);
 					
 					connectionCopy.close();
 					secondConnection.close();
 					removePostgresqlDatabase(connection, secondDatabaseName);
-					renamePostgresqlDatabase(connectionCopy, secondDatabaseName, targetDatabaseName);
+					renamePostgresqlDatabase(adminConnection, secondDatabaseName, targetDatabaseName);
 					
 				} else if(databaseType.equals("mssql")) {
 					//MSSQL
 					List<String> mergeTables = readMergeTablesNamesFromProperties(propertiesFile);
 					Connection secondConnection = getConnectionMsSQL(secondDBAdress, secondUserName, secondPassword, hostAndPort, secondDatabaseName, integratedSecurity);
 					Connection connectionCopy = getConnectionMsSQL(dbAdressCopy, userName, password, hostAndPort, targetDatabaseName, integratedSecurity);
-					System.out.println("Merging MsSQL database..." );
+					logger.info("Merging MsSQL database...");
 					if(args.length == 3) {
 						if(!args[2].equals("schema-only")) {
-							System.out.println("Unknown argument value: " + args[2]);
+							logger.info("Unknown argument value: " + args[2]);
 							return;
 						}
 						schemaOnly = true;
@@ -379,13 +384,13 @@ public class Migration
 				}
 				
 				if(result) {
-					System.out.println("Database merged successfully");
+					logger.info("Database merged successfully");
 				} else {
-					System.out.println("Database merging terminated.");
+					logger.info("Database merging terminated.");
 				}
 				
 			} else {
-				System.out.println("Operation type not recognized.");
+				logger.info("Operation type not recognized.");
 				return;
 			}
         }                 
@@ -448,27 +453,24 @@ public class Migration
 	public static boolean checkArguments(String[] arguments) {
 		boolean result = false;
 		if (arguments.length < 3) {
-			System.out.println("Not enough arguments provided");
+			logger.info("Not enough arguments provided");
 			result = false;
 		} else {
 			if (arguments[1].equals("clone") || arguments[1].equals("merge")) {
 				if (arguments.length < 4) {
 					
-				
-					System.out.println("Not enough arguments provided");
-					System.out.println(
-							"Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force propertiesPath");
-					System.out.println("More info: help");
+					logger.info("Not enough arguments provided");
+					logger.info("Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force propertiesPath");
+					logger.info("More info: help");
 					result = false;
 				} else {
 					if(!arguments[2].equals("safe") && !arguments[2].equals("force")) {
-						System.out.println("Unrecognized argument: " + arguments[2]);
-						System.out.println(
-								"Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force propertiesPath");
-						System.out.println("More info: help");
+						logger.info("Unrecognized argument: " + arguments[2]);
+						logger.info("Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force propertiesPath");
+						logger.info("More info: help");
 						result = checkIfFileExists(arguments[3]);
 						if(!result) {
-							System.out.println("File does not exists: " + arguments[3]);
+							logger.info("File does not exists: " + arguments[3]);
 						}
 					} else {
 						result = true;
@@ -477,21 +479,21 @@ public class Migration
 			} else if(arguments[0].equals("import-postgresql") || arguments[0].equals("import-mssql")) {
 				result = checkIfFileExists(arguments[1]);
 				if(!checkIfFileExists(arguments[2])) {
-					System.out.println("File does not exists: " + arguments[1]);
+					logger.info("File does not exists: " + arguments[1]);
 					result = false;
 				}
 				
 			} else if(arguments[0].equals("export-postgresql") || arguments[0].equals("export-mssql")) {
 				result = checkIfFileExists(arguments[1]);
 				if(!checkIfFileExists(arguments[2])) {
-					System.out.println("File does not exists: " + arguments[1]);
+					logger.info("File does not exists: " + arguments[1]);
 					result = false;
 				}
 				
 			} else {
-				System.out.println("Unknown argument: " + arguments[1]);
-				System.out.println("Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
-				System.out.println("More info: help");
+				logger.info("Unknown argument: " + arguments[1]);
+				logger.info("Required arguments: databaseType:postgresql/mssql operationType:clone/merge operationMode:safe/force");
+				logger.info("More info: help");
 				result = false;
 			}
 		}
@@ -522,6 +524,7 @@ public class Migration
 			try {
 				result = copyMsSQLTablesContent(secondConnection, connectionCopy,targetDatabaseName, secondDatabaseName, mergeTables, "mssql", mode);
 			} catch (SQLException e) {
+				logger.debug(e);
 				e.printStackTrace();
 			}
 		}
@@ -535,12 +538,15 @@ public class Migration
     												String hostAndPort, String pg_dumpPath, String userName,
     												String password, String secondDatabaseName,
     												String psqlPath, String targetDatabaseName,
-    												boolean schemaOnly) {
+    												boolean schemaOnly, boolean createMergeSequences) {
     	boolean result = false;
     	
-    	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(secondConnection, mergeTables);
-    	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(secondConnection, sequencesNames);
-    	result = createPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers, schemaOnly);
+    	
+    	if(createMergeSequences) {
+        	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(secondConnection, mergeTables);
+        	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(secondConnection, sequencesNames);
+        	result = createPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers, schemaOnly, createMergeSequences);	
+    	}
     	result = copyPostgresqlTablesToDatabase(hostAndPort, pg_dumpPath, userName, password, secondDatabaseName, 
     			mergeTables, psqlPath, targetDatabaseName, schemaOnly);
     
@@ -575,7 +581,7 @@ public class Migration
 			statement.execute(query);
 			
 		} catch (IOException e) {
-		
+			logger.debug(e);
 			e.printStackTrace();
 		}
     	  
@@ -632,7 +638,8 @@ public class Migration
                       new InputStreamReader(process.getErrorStream()));
             String line = r.readLine();
             while (line != null) {
-                System.err.println(line);
+            	logger.info(line);
+                //System.err.println(line);
                 line = r.readLine();
             }
             r.close();
@@ -688,7 +695,8 @@ public class Migration
                       new InputStreamReader(process.getErrorStream()));
             String line = r.readLine();
             while (line != null) {
-                System.err.println(line);
+            	logger.info(line);
+                //System.err.println(line);
                 line = r.readLine();
             }
             r.close();
@@ -696,22 +704,25 @@ public class Migration
             final int dcertExitCode = process.waitFor();
 
          } catch (IOException e) {
+        	logger.debug(e);
             e.printStackTrace();
          } catch (InterruptedException ie) {
+        	 logger.debug(ie);
             ie.printStackTrace();
          }
     }
     
     
     public static boolean createPostgresqlSequences(Connection connection, List<String> sequencesNames,
-    												List<Long> startsWithNumbers, boolean schemaOnly) {
+    												List<Long> startsWithNumbers, boolean schemaOnly,
+    												boolean createMergeSequences) {
     	boolean result = false;
     	String query = "";
     	try {
 			Statement statement = connection.createStatement();
 			for(int i = 0; i < sequencesNames.size(); i++) {
 				
-				if(schemaOnly) {
+				if(schemaOnly || !createMergeSequences) {
 					query = "CREATE SEQUENCE " + sequencesNames.get(i) + " START 1";
 				} else {
 					query = "CREATE SEQUENCE " + sequencesNames.get(i) + " START " +
@@ -722,6 +733,7 @@ public class Migration
 			result = true;
 			
 		} catch (SQLException e) {
+			logger.debug(e);
 			e.printStackTrace();
 		}
 
@@ -748,6 +760,7 @@ public class Migration
 	    	}
 			
 		} catch (SQLException e) {
+			logger.debug(e);
 			e.printStackTrace();
 		}
 	
@@ -769,6 +782,7 @@ public class Migration
 			}
 			
 		} catch (SQLException e) {
+			logger.debug(e);
 			e.printStackTrace();
 		}
     	
@@ -826,6 +840,7 @@ public class Migration
         }
         catch ( SQLException e )
         {
+        	logger.debug(e);
             e.printStackTrace();
         }
     }
@@ -846,7 +861,8 @@ public class Migration
     		String userName, String password, String hostAndPort, List<String> allTablesNames,
     		List<String> unusedTablesNames, boolean integratedSecurity, String pg_dumpPath, String psqlPath,
     		String mode, Connection adminConnection, String targetHostAndPort,
-    		String adminUserName, String adminPassword) throws SQLException {
+    		String adminUserName, String adminPassword,
+    		boolean updateSequences) throws SQLException {
     	
         boolean result = false;
         DatabaseMetaData metaData = connection.getMetaData();
@@ -895,13 +911,15 @@ public class Migration
             	tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, templateDatabaseName);
             }
             
-            System.out.println(tablesToCopy.size());
+            //System.out.println(tablesToCopy.size());
         	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(connection, tablesToCopy);
         	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(connection, sequencesNames);
             
         	//update na sekwencjach i ustawienie STARTS WITH z poprzedniej bazy
         	//result = removeSequencesFromPostgresqlDatabase(connectionCopy, sequencesNames);
-        	result = updateStartWithPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);
+        	if(updateSequences) {
+        		result = updateStartWithPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers);        		
+        	}
             
         	//Connection connectionCopy = getConnectionPostgreSQL(dbAddress, userName, password);
 
@@ -943,6 +961,7 @@ public class Migration
     		try {
 				Statement statement = connection.createStatement();
 				String query = "ALTER SEQUENCE " + sequencesNames.get(i) + " RESTART WITH " + (startsWithNumbers.get(i) + 1);
+				logger.info(query);
 				//System.out.println(query);
 				statement.execute(query);
 			} catch (SQLException e) {
@@ -959,6 +978,7 @@ public class Migration
     		try {
 				Statement statement = connection.createStatement();
 				String query = "DROP SEQUENCE IF EXISTS " + sequencesNames.get(i);
+				logger.info(query);
 				statement.execute(query);
 			} catch (SQLException e) {
 				e.printStackTrace();
@@ -989,7 +1009,7 @@ public class Migration
         baseCmds.add("-f");
         baseCmds.add(System.getProperty("user.home") + "/backup.sql");
         
-        System.out.println("Restoring database...");
+        logger.info("Restoring database...");
         final ProcessBuilder pb = new ProcessBuilder(baseCmds);
         //psql -d database_name -h localhost -U postgres < path/db.sql
         
@@ -1011,7 +1031,8 @@ public class Migration
             }
 
             while (line != null) {
-                System.err.println(line);
+            	logger.info(line);
+                //System.err.println(line);
                 line = r.readLine();
             }
 
@@ -1029,7 +1050,7 @@ public class Migration
             removeFile(System.getProperty("user.home") + "/backup.sql");
          }
     	
-        System.out.println("Restoring finished");
+        logger.info("Restoring finished");
     	return result;
     }
     
@@ -1066,7 +1087,8 @@ public class Migration
                       new InputStreamReader(process.getErrorStream()));
             String line = r.readLine();
             while (line != null) {
-                System.err.println(line);
+            	logger.info(line);
+                //System.err.println(line);
                 line = r.readLine();
             }
             r.close();
@@ -1074,9 +1096,11 @@ public class Migration
             final int dcertExitCode = process.waitFor();
 
          } catch (IOException e) {
-            e.printStackTrace();
+            //e.printStackTrace();
+            logger.error(e.getMessage());
          } catch (InterruptedException ie) {
-            ie.printStackTrace();
+        	logger.error(ie);
+            //ie.printStackTrace();
          } 
     	
     	//pg_dump -U pguser -s dvdrental > sqlPath
@@ -1131,7 +1155,8 @@ public class Migration
     	createDatabaseMigrationDirectory();
     	String userHome = System.getProperty("user.home");
     	query += "BACKUP DATABASE " + templateDatabaseName + " TO DISK = '" + userHome + File.separator + "DatabaseMigration" + File.separator + templateDatabaseName + ".bak'  \n";
-    	System.out.println(query);
+    	logger.info(query);
+    	//System.out.println(query);
     	Statement statement;
         try
         {
@@ -1141,8 +1166,9 @@ public class Migration
         }
         catch ( SQLException e )
         {
-            System.out.println("Error while executing.");
-            e.printStackTrace();
+        	logger.error("Error while executing");
+            logger.error(e.getMessage());
+            //e.printStackTrace();
             return;
         }
     }
@@ -1167,20 +1193,22 @@ public class Migration
             statement = connection.createStatement();
             statement.execute(query);
             removeFile("C:/DatabaseMigration/" + databaseName + ".bak");
-            System.out.println("Database restored successfully.");
+            logger.info("Database restored successfully.");
         }
         catch ( SQLException e )
         {
-            System.out.println("Error while restoring database.");
+            logger.error("Error while restoring database.");
             removeFile("C:/DatabaseMigration/" + databaseName + ".bak");
-            e.printStackTrace();
+            logger.error(e.getMessage());
+            //e.printStackTrace();
             return;
         }
     }
     
     public static void createMssqlDatabase(Connection connection, String databaseName) {
     	String query = "CREATE DATABASE " + databaseName +";";
-    	System.out.println(query);
+    	//System.out.println(query);
+    	logger.info(query);
     	
     	Statement statement;
         try
@@ -1190,8 +1218,9 @@ public class Migration
         }
         catch ( SQLException e )
         {
-            System.out.println("Error while creating database.");
-            e.printStackTrace();
+        	logger.error("Error while creating database.");
+        	logger.error(e.getMessage());
+            //e.printStackTrace();
             return;
         }
     }
@@ -1213,8 +1242,10 @@ public class Migration
         }
         catch ( SQLException e )
         {
-            System.out.println("Error while executing.");
-            e.printStackTrace();
+        	logger.error("Error while executing.");
+            //System.out.println("Error while executing.");
+        	logger.error(e.getMessage());
+            //e.printStackTrace();
             return;
         }
     	
@@ -1225,8 +1256,9 @@ public class Migration
     	try{		
     		File file = new File("c:/DatabaseMigration/" + templateDatabaseName + ".bak");
         	file.delete();
-    	}catch(Exception e){	
-    		e.printStackTrace();
+    	}catch(Exception e){
+    		logger.error(e.getMessage());
+    		//e.printStackTrace();
     	}
     }
     
@@ -1235,8 +1267,9 @@ public class Migration
     	try{		
     		File file = new File(filePath);
         	file.delete();
-    	}catch(Exception e){	
-    		e.printStackTrace();
+    	}catch(Exception e){
+    		logger.error(e.getMessage());
+    		//e.printStackTrace();
     	}
     }
     
@@ -1250,6 +1283,7 @@ public class Migration
 				theDir.mkdir();
 				result = true;
 			} catch (SecurityException se) {
+				logger.error(se);
 			}
 		}
 	}
@@ -1292,7 +1326,7 @@ public class Migration
         } else if(databaseType.equals( "postgresql" )) {
             connection = getConnectionPostgreSQL( dbAdress, userName, password );
         } else {
-            System.out.println( "Wrong database type name" );
+        	logger.error("Wrong database type name");
         }
         return connection;
     }
@@ -1302,7 +1336,7 @@ public class Migration
             //Class.forName("org.postgresql.Driver");
         	Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
         } catch (ClassNotFoundException e) {
-
+        	logger.error(e.getMessage());
             e.printStackTrace();
         }
 
@@ -1319,13 +1353,14 @@ public class Migration
         	}
         	
         	//String url = "jdbc:sqlserver://" +  hostAndPort + ";DatabaseName=" + databaseName; //+ ";integratedSecurity=true;";
-        	System.out.println(url);
+        	//System.out.println(url);
+        	logger.info(url);
             //"jdbc:microsoft:sqlserver://HOST:1433;DatabaseName=DATABASE";
             // root password
         } catch (SQLException e) {
-            
-            System.out.println("Connection to: " + dbAdress + " failed.");
-            e.printStackTrace();
+            logger.error("Connection to: " + dbAdress + " failed.");
+            logger.error(e.getMessage());
+            //e.printStackTrace();
         }
         return connection;
     }
@@ -1334,8 +1369,8 @@ public class Migration
         try {
             Class.forName("org.postgresql.Driver");
         } catch (ClassNotFoundException e) {
-
-            e.printStackTrace();
+        	logger.error(e.getMessage());
+            //e.printStackTrace();
         }
 
         Connection connection = null;
@@ -1343,12 +1378,10 @@ public class Migration
         try {
             connection = DriverManager.getConnection(
                     "jdbc:postgresql:" + dbAdress, userName, password);
-            System.out.println(dbAdress);
-
+            logger.info(dbAdress);
         } catch (SQLException e) {
-            
-            System.out.println("Connection to: " + dbAdress + " failed.");
-            e.printStackTrace();
+            logger.error("Connection to: " + dbAdress + " failed.");
+            logger.error(e.getMessage());
         }
         return connection;
     }
@@ -1384,7 +1417,8 @@ public class Migration
                       new InputStreamReader(process.getErrorStream()));
             String line = r.readLine();
             while (line != null) {
-                System.err.println(line);
+            	logger.info(line);
+                //System.err.println(line);
                 line = r.readLine();
             }
             r.close();
@@ -1392,9 +1426,11 @@ public class Migration
             final int dcertExitCode = process.waitFor();
 
          } catch (IOException e) {
-            e.printStackTrace();
+        	 logger.error(e.getMessage());
+            //e.printStackTrace();
          } catch (InterruptedException ie) {
-            ie.printStackTrace();
+        	 logger.error(ie);
+            //ie.printStackTrace();
          }
     }
     
@@ -1410,10 +1446,11 @@ public class Migration
 			zos.close();
 			fos.close();
 			removeFile(filePath);
-            System.out.println("Zip file created successfully.");
+			logger.info("Zip file created successfully.");
 		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-            System.out.println("Exception while importing.");
+			logger.error(e.getMessage());
+			//e.printStackTrace();
+			logger.error("Exception while importing.");
 		}
     }
     
@@ -1430,16 +1467,17 @@ public class Migration
 			zos.close();
 			fos.close();
 			removeFile(filePath);
-            System.out.println("Zip file created successfully.");
+			logger.info("Zip file created successfully.");
 		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-            System.out.println("Exception while importing.");
+			logger.error(e.getMessage());
+			//e.printStackTrace();
+			logger.error("Exception while importing.");
 		}
     }
     
     public static void addToZipFile(String fileName, ZipOutputStream zos) throws FileNotFoundException, IOException {
 
-		System.out.println("Writing '" + fileName + "' to zip file");
+		logger.info("Writing '" + fileName + "' to zip file");
 
 		File file = new File(fileName);
 		FileInputStream fis = new FileInputStream(file);
@@ -1490,17 +1528,20 @@ public class Migration
                       new InputStreamReader(process.getErrorStream()));
             String line = r.readLine();
             while (line != null) {
-                System.err.println(line);
+            	logger.info(line);
+                //System.err.println(line);
                 line = r.readLine();
             }
             r.close();
 
             final int dcertExitCode = process.waitFor();
-            System.out.println("Database imported successfully");
+            logger.info("Databas eimported successfully.");
          } catch (IOException e) {
-            e.printStackTrace();
+        	logger.error(e.getMessage());
+            //e.printStackTrace();
          } catch (InterruptedException ie) {
-            ie.printStackTrace();
+        	logger.error(ie); 
+            //ie.printStackTrace();
          }
        removeFile(sqlPath); 
     }
@@ -1527,8 +1568,9 @@ public class Migration
        			
        	   String fileName = ze.getName();
               File newFile = new File(outputFolder + File.separator + fileName);
-                   
-              System.out.println("file unzip : "+ newFile.getAbsoluteFile());
+              
+              logger.info("file unzip : "+ newFile.getAbsoluteFile());
+              //System.out.println("file unzip : "+ newFile.getAbsoluteFile());
                    
                //create all non exists folders
                //else you will hit FileNotFoundException for compressed folder
@@ -1547,8 +1589,8 @@ public class Migration
        	
            zis.closeEntry();
        	zis.close();
-       		
-       	System.out.println("Zip loaded.");
+       	
+       	logger.info("Zip loaded");
        		
        }catch(IOException ex){
           ex.printStackTrace(); 
@@ -1559,7 +1601,7 @@ public class Migration
     		String databaseName) {
     	Connection connection = getConnectionPostgreSQL(dbAdress, userName, password);
     	String query = "CREATE DATABASE " + databaseName +";";
-    	System.out.println(query);
+    	logger.info(query);
     	
     	Statement statement;
         try
@@ -1570,8 +1612,9 @@ public class Migration
         }
         catch ( SQLException e )
         {
-            System.out.println("Error while creating database.");
-            e.printStackTrace();
+        	logger.error("Error while creating database.");
+            logger.error(e.getMessage());
+            //e.printStackTrace();
             return;
         }
     }
@@ -1580,8 +1623,8 @@ public class Migration
     	
     	//Connection connection = getConnectionMsSQL(dbAdress, userName, password, hostAndPort, templateDatabaseName, integratedSecurity);
     	String query = "if db_id('" + targetDatabaseName +"') is null CREATE DATABASE " + targetDatabaseName +";";
-    	System.out.println(query);
     	
+    	logger.info(query);
     	Statement statement;
         try
         {
@@ -1591,8 +1634,9 @@ public class Migration
         }
         catch ( SQLException e )
         {
-            System.out.println("Error while creating database.");
-            e.printStackTrace();
+        	logger.error("Error while creating database.");
+        	logger.error(e.getMessage());
+            //e.printStackTrace();
             return;
         }
     }
@@ -1836,32 +1880,14 @@ public class Migration
 			
 			
 		} catch (SQLException e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
+			//e.printStackTrace();
 		}
     	
     }
     
     public static void copyMsSQLTablesSchemaToTargetDatabase(Connection connection, Connection connectionCopy) {
     	try {
-				/*List<String> tablesNames = getDatabaseTablesNames(connection);
-				
-				Statement statementCopy = connectionCopy.createStatement();
-				Statement statement = connection.createStatement();
-				
-				for(int i = 0; i < tablesNames.size(); i++) {
-					String functionQuery = getMsSQLCreateTableQuery(tablesNames.get(i));
-					
-					ResultSet rs = statement.executeQuery(functionQuery);
-					String createTable = "";
-					
-					while(rs.next()) {
-						createTable = rs.getString(1);
-						System.out.println(rs.getString(1));
-					}
-					statementCopy.execute(createTable);
-
-				}*/
-				
 				
 				// Nie kopiuje kluczy obcych
 				String query = getMsSQLCreateTablesQuery();
@@ -1872,12 +1898,13 @@ public class Migration
 				ResultSet rs = statement.executeQuery(query);
 				while(rs.next()) {
 					String createTableQuery = rs.getString(1);
-				    System.out.println(createTableQuery);
+					logger.info(createTableQuery);
+				   
 					statementCopy.executeUpdate(createTableQuery);
 				}
 
 		} catch (SQLException e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
 		}
     }
     
@@ -1885,7 +1912,7 @@ public class Migration
 			List<String> mergeTablesNames, String targetDatabaseName) throws SQLException {
 		boolean result = false;
 		try {
-			System.out.println("Merge tables names size: " + mergeTablesNames.size());
+			//System.out.println("Merge tables names size: " + mergeTablesNames.size());
 			Statement statementCopy = connectionCopy.createStatement();
 			Statement statement = connection.createStatement();
 			
@@ -1897,7 +1924,7 @@ public class Migration
 				
 				while(rs.next()) {
 					createTable = rs.getString(1);
-					System.out.println(rs.getString(1));
+					logger.info(createTable);
 				}
 				statementCopy.execute(createTable);
 				// dropDatabse(connectionCopy, targetDatabaseName);
@@ -1906,7 +1933,8 @@ public class Migration
 			}
 			result = true;
 		} catch (SQLException e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
+			//e.printStackTrace();
 			connectionCopy.close();
 			dropDatabse(connection, targetDatabaseName);
 		}
@@ -1921,7 +1949,8 @@ public class Migration
 			String query = "DROP DATABASE " + databaseName;
 			statement.execute(query);
 		} catch (SQLException e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
+			//e.printStackTrace();
 		}
 
 	}
@@ -1931,11 +1960,12 @@ public class Migration
     	
     	List<String> orderedTablesToCopy = new ArrayList<>();
     	
-    	for(int i = 0; i < tablesToCopy.size(); i++) {
+    	/*for(int i = 0; i < tablesToCopy.size(); i++) {
     		System.out.println(tablesToCopy.get(i));
-    	}
+    	}*/
     	
-    	System.out.println("Ordered tables list: ");
+    	//System.out.println("Ordered tables list: ");
+    	logger.info("Ordered tables list: ");
     	if(mode.equals("safe")) {
     		orderedTablesToCopy = collectTablesList(tablesToCopy, connectionCopy, databaseType, templateDatabaseName);
     	} else {
@@ -1944,14 +1974,14 @@ public class Migration
     	
     	
     	for(int i = 0; i < orderedTablesToCopy.size(); i++) {
-    		System.out.println(orderedTablesToCopy.get(i));
+    		logger.info(orderedTablesToCopy.get(i));
     	}
     	
     	
     	boolean result = false;
     	for(int i = 0; i < orderedTablesToCopy.size(); i++) {
     		String query = getMsSQLInsertStatement(orderedTablesToCopy.get(i), templateDatabaseName);
-    		System.out.println(query);
+    		logger.info(query);
     		try {
 				Statement statement = connectionCopy.createStatement();
 				statement.executeUpdate(query);
@@ -1960,7 +1990,8 @@ public class Migration
 				connectionCopy.close();
 				dropDatabse(connection,targetDatabaseName);
 				result = false;
-				e.printStackTrace();
+				logger.error(e.getMessage());
+				//e.printStackTrace();
 			}
     	}   	
     	return result;
@@ -1975,7 +2006,8 @@ public class Migration
     
     public static void createDatabasePostgresqlWithConnection(Connection connection, String databaseName) {
     	String query = "CREATE DATABASE " + databaseName +";";
-    	System.out.println(query);
+    	//System.out.println(query);
+    	logger.info(query);
     	
     	Statement statement;
         try
@@ -1986,8 +2018,9 @@ public class Migration
         }
         catch ( SQLException e )
         {
-            System.out.println("Error while creating database.");
-            e.printStackTrace();
+        	logger.error("Error while creating database.");
+        	logger.error(e.getMessage());
+            //e.printStackTrace();
             return;
         }
     }
@@ -1997,7 +2030,7 @@ public class Migration
     		String targetDatabaseName, List<String> tablesToCopy, String databaseType, String mode) throws SQLException {
     	
     	String tableName;
-    	System.out.println("Inserting data to selected tables...");
+    	logger.info("Inserting data to selected tables...");
     	boolean result = false;
     	
     	
@@ -2016,7 +2049,8 @@ public class Migration
 			
 			
 			for(int k = 0 ; k < tables.size(); k++) {
-				System.out.println(tables.get(k));
+				logger.info(tables.get(k));
+				//System.out.println(tables.get(k));
 			}
 			
 			List<PreparedStatement> preparedStatements;
@@ -2038,7 +2072,8 @@ public class Migration
 		} catch (SQLException e) {
 			connectionCopy.close();
 			dropDatabse(connection, targetDatabaseName);
-			e.printStackTrace();
+			logger.error(e.getMessage());
+			//e.printStackTrace();
 		}    	
     	return result;
     }
@@ -2082,7 +2117,8 @@ public class Migration
 		    
 		    if(tmpCounter == counter) {
 	              for(int k = 0; k < tablesWithForeignKeys.size(); k++) {
-	            	  System.out.println("SAFE MODE: Possible exception for rows inserted into " + tablesWithForeignKeys.get(k));
+	            	  logger.info("SAFE MODE: Possible exception for rows inserted into " + tablesWithForeignKeys.get(k));
+	            	  //System.out.println("SAFE MODE: Possible exception for rows inserted into " + tablesWithForeignKeys.get(k));
 	                  normalTables.add( tablesWithForeignKeys.get( k ));
 	                }
 		        endLoop = true;
@@ -2136,7 +2172,8 @@ public class Migration
 		    //System.out.println("Tables with foreign keys size: " + tablesWithForeignKeys.size());
 		    if(tmpCounter == counter) {
 		    	for(int i = 0 ; i < tablesWithForeignKeys.size(); i++) {
-		    		System.out.println("Table: " + tablesWithForeignKeys.get(i) + " in force mode. Data not inserted becouse of FK constraints.");
+		    		logger.info("Table: " + tablesWithForeignKeys.get(i) + " in force mode. Data not inserted becouse of FK constraints.");
+		    		//System.out.println("Table: " + tablesWithForeignKeys.get(i) + " in force mode. Data not inserted becouse of FK constraints.");
 		    	}
 		        endLoop = true;
 		    }
@@ -2189,7 +2226,8 @@ public class Migration
 			}
 			
 		} catch (SQLException e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
+			//e.printStackTrace();
 		}
     	
 		/*System.out.println( "Klucze obce tabeli: " + tableName);
@@ -2225,7 +2263,8 @@ public class Migration
 			}
 			
 		} catch (SQLException e) {
-			e.printStackTrace();
+			logger.error(e.getMessage());
+			//e.printStackTrace();
 			return false;
 		}
     	return result;
@@ -2251,8 +2290,8 @@ public class Migration
 			
 			
 		} catch (SQLException e) {
-		
-			e.printStackTrace();
+			logger.error(e.getMessage());
+			//e.printStackTrace();
 		}
     	
     	return preparedSatatements;
@@ -2275,8 +2314,8 @@ public class Migration
 			}
 
 		} catch (SQLException e) {
-
-			e.printStackTrace();
+			logger.error(e.getMessage());
+			//e.printStackTrace();
 		}	
 		   String sql = "INSERT INTO " + tableName + " ("
 		              + columnNames
@@ -2284,6 +2323,38 @@ public class Migration
 		              + bindVariables
 		              + ");";
     	return sql;
+    }
+    
+    public static boolean getBooleanFromFile(String propertiesPath, String param) {
+    	FileInputStream inputStream = null;
+    	boolean result = false;
+		try {
+			Properties prop = new Properties();
+			inputStream = new FileInputStream(propertiesPath);
+
+			prop.load(inputStream);
+			
+			// get the property value and print it out
+			String tmp = "";
+			tmp = prop.getProperty(param);
+			if(tmp.equals("true")) {
+				result = true;
+			} else {
+				result = false;
+			}
+
+		} catch (Exception e) {
+			logger.error("Exception" + e);
+			//System.out.println("Exception: " + e);
+		} finally {
+			try {
+				inputStream.close();
+			} catch (IOException e) {
+				//e.printStackTrace();
+				logger.error(e.getMessage());
+			}
+		}
+		return result;
     }
     
     
@@ -2306,12 +2377,14 @@ public class Migration
 			}
 
 		} catch (Exception e) {
-			System.out.println("Exception: " + e);
+			logger.error("Exception: " + e);
+			//System.out.println("Exception: " + e);
 		} finally {
 			try {
 				inputStream.close();
 			} catch (IOException e) {
-				e.printStackTrace();
+				logger.error(e.getMessage());
+				//e.printStackTrace();
 			}
 		}
 		return result;
@@ -2330,12 +2403,14 @@ public class Migration
 			result = prop.getProperty(propertyName);
 
 		} catch (Exception e) {
-			System.out.println("Exception: " + e);
+			logger.error("Exception: " + e);
+			//System.out.println("Exception: " + e);
 		} finally {
 			try {
 				inputStream.close();
 			} catch (IOException e) {
-				e.printStackTrace();
+				logger.error(e.getMessage());
+				//e.printStackTrace();
 			}
 		}
 		return result;
@@ -2361,12 +2436,14 @@ public class Migration
 				}
 			}
 		} catch (Exception e) {
-			System.out.println("Exception: " + e);
+			logger.error("Exception: " + e);
+			//System.out.println("Exception: " + e);
 		} finally {
 			try {
 				inputStream.close();
 			} catch (IOException e) {
-				e.printStackTrace();
+				logger.error(e.getMessage());
+				//e.printStackTrace();
 			}
 		}
 		return unusedTablesNames;
@@ -2391,12 +2468,13 @@ public class Migration
 				}
 			}
 		} catch (Exception e) {
-			System.out.println("Exception: " + e);
+			logger.error("Exception: " + e);
 		} finally {
 			try {
 				inputStream.close();
 			} catch (IOException e) {
-				e.printStackTrace();
+				logger.error(e.getMessage());
+				//e.printStackTrace();
 			}
 		}
 		return unusedTablesNames;

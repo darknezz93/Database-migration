@@ -79,23 +79,31 @@ public class Help {
 		msg += "#PostgreSQL\n";
 		msg += "postgresql.host=localhost\n";
 		msg += "postgresql.port=5432\n";
+		msg += "postgresql.targetHost=localhost\n";
+		msg += "postgresql.targetPort=5432\n";
 		msg += "postgresql.databaseName=plusworkflowdev_copy\n";
 		msg += "postgresql.targetDatabaseName=tempdb\n";
+		
 		msg += "postgresql.adminDatabaseName=postgres\n";
+		msg += "postgresql.adminUserName=pguser\n";
+		msg += "postgresql.adminPassword=pguser\n";
+		
 		msg += "postgresql.restoreDatabaseName=skopiowana3000\n";
 		msg += "postgresql.userName=pguser\n";
 		msg += "postgresql.password=pguser\n";
 		msg += "postgresql.pg_dumpPath=C:\\ProgramFiles\\PostgreSQL\\9.5\\bin\\pg_dump\n";
 		msg += "postgresql.psqlPath=C:\\ProgramFiles\\PostgreSQL\\9.5\\bin\\psql\n";
+		msg += "postgresql.updateSequences=false\n";
+		msg += "postgresql.createMergeSequences=false\n";
 		msg += "#Second\n";
-		msg += "postgresql.secondDatabaseName=dvdrental_copy\n";
-		msg += "postgresql.secondUserName=pguser\n";
-		msg += "postgresql.secondPassword=pguser\n";
+		msg += "postgresql.secondDatabaseName=dvdrental_copy\n\n";
 
 
 		msg += "#MsSQL\n";
 		msg += "mssql.host=localhost\n";
 		msg += "mssql.port=1433\n";
+		msg += "mssql.targetHost=localhost\n";
+		msg += "mssql.targetPort=1433\n";
 		msg += "mssql.databaseName=pubs_copy\n";
 		msg += "mssql.targetDatabaseName=temp_pubs\n";
 		msg += "mssql.restoreDatabaseName=skopiowana3000\n";
@@ -105,12 +113,10 @@ public class Help {
 		msg += "mssql.adminDatabaseName=pubs\n";
 		msg += "#Second\n";
 		msg += "mssql.secondDatabaseName=trunk\n";
-		msg += "mssql.secondUserName=adam\n";
-		msg += "mssql.secondPassword=password\n";
 
 		msg += "#Unused Tables\n";
 		msg += "unusedTable.table1=jobs\n";
-		msg += "#unusedTable.table2=address\n";
+		msg += "unusedTable.table2=address\n";
 
 		msg += "#Merge Tables\n";
 		msg += "mergeTable.table1=Point\n";
