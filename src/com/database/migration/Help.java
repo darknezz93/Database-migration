@@ -51,7 +51,7 @@ public class Help {
 		
 		msg += "--- COPYING DATABASE --- \n";
 		msg += "database_type operation_type mode_type \n";
-		msg += "Example : postgresql clone force C:/database.properties\n";
+		msg += "Example : postgresql clone force C:\\database.properties\n";
 		msg += "\n";
 		
 		msg += "--- MERGING DATABASE --- \n";
@@ -61,13 +61,15 @@ public class Help {
 		
 		msg += "--- EXPORTING DATABASE --- \n";
 		msg += "export_type zip_path\n";
-		msg += "Example : export-postgresql C:\\Users\\Adam\\Desktop\\dvdrental.zip\n";
+		msg += "Example : export-postgresql /home/temp/file.zip  /home/temp/database.properties\n";
+		msg += "Exporting database with :host, :port, :databaseName, :userName and :password properties.\n";
 		msg += "\n";
 		
 		
 		msg += "--- IMPORTING DATABASE --- \n";
 		msg += "import_type zip_path\n";
-		msg += "Example : import-postgresql C:\\Users\\Adam\\Desktop\\dvdrental.zip\n";
+		msg += "Example : import-postgresql /home/temp/file.zip  /home/temp/database.properties\n";
+		msg += "Importing database with :host, :port, :adminUserName, :adminPassword properties to :restoreDatabaseName\n";
 		msg += "\n\n";
 		
 		msg += "--- CONFIGURATION ---\n\n";

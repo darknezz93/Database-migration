@@ -54,7 +54,7 @@ public class Migration
      * (nazwy tabel z drugiej bazy danych w merge zapisane w pliku konfiguracyjnym mergeTables.properties)
      * (nazwy tabel z drugiej bazy danych w merge zapisane w pliku konfiguracyjnym unusedTables.properties)
      * (dane dotyczace baz baz danych zapisane w pliku postgresql.properties i mssql.properties)
-     * (wszystkie pliki .properties zapisane w katalogu SuncodeDatabaseMigration znajduj¹cym sie w katalogu domowym)
+     * (wszystkie pliki .properties zapisane w katalogu SuncodeDatabaseMigration znajdujï¿½cym sie w katalogu domowym)
      * mssql/mssql-integratedSecurity clone server:port templateDBName targetDBName user password unusedTables 
      * mssql/mssql-integratedSecurity merge server:port templateDBName targetDBName user password unusedTables
      * 
@@ -244,7 +244,8 @@ public class Migration
         	} else {
         		String fullZipPath = args[1];
         		logger.info("Importing postgreSQL database from zip file...");
-            	restorePostgresqlDatabase(psqlPath, host, port, userName, password, templateDatabaseName,restoreDatabaseName, fullZipPath, adminDatabaseName);	
+            	//restorePostgresqlDatabase(psqlPath, host, port, adminUserName, adminPassword, adminDatabaseName,restoreDatabaseName, fullZipPath, adminDatabaseName);	
+            	restorePostgresqlDatabase( psqlPath, host, port, adminUserName, adminPassword, templateDatabaseName, restoreDatabaseName, fullZipPath, adminDatabaseName );
         	}
         	/**
         	 * import-mssql databaseName adminDatabase userName password hostAndPort zipPath
@@ -477,17 +478,26 @@ public class Migration
 					}
 				}
 			} else if(arguments[0].equals("import-postgresql") || arguments[0].equals("import-mssql")) {
-				result = checkIfFileExists(arguments[1]);
+				//result = checkIfFileExists(arguments[1]);
+				if(!checkIfFileExists(arguments[1])) {
+                    logger.info("File does not exists: " + arguments[1]);
+                    return false;
+                }
 				if(!checkIfFileExists(arguments[2])) {
-					logger.info("File does not exists: " + arguments[1]);
-					result = false;
+					logger.info("File does not exists: " + arguments[2]);
+					return false;
+				}
+				else {
+				    return true;
 				}
 				
+				//file.zip database.properties
 			} else if(arguments[0].equals("export-postgresql") || arguments[0].equals("export-mssql")) {
-				result = checkIfFileExists(arguments[1]);
 				if(!checkIfFileExists(arguments[2])) {
-					logger.info("File does not exists: " + arguments[1]);
+					logger.info("File does not exists: " + arguments[2]);
 					result = false;
+				} else {
+				    result = true;
 				}
 				
 			} else {
@@ -876,7 +886,7 @@ public class Migration
         	createDatabaseMsSQL(adminConnection, targetDatabaseName);
         	
            // if(mode.equals("force")) {
-            	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
+            	//nie kopiuje tabel, ktï¿½re wyrzucajï¿½ fk exception podczas insertowania
             	//tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, targetDatabaseName);
             //}
         	
@@ -894,20 +904,22 @@ public class Migration
         	
         	List<String> tablesToCopy = removeElementsFromList(allTablesNames, unusedTablesNames);
         	
-        	//kopiowany jest schemat (sekwencje przy kopiowaniu s¹ zerowane)
+        	//kopiowany jest schemat (sekwencje przy kopiowaniu sï¿½ zerowane)
             result = copyPostgreSQLSchemaToSQLFile(templateDatabaseName, pg_dumpPath, hostAndPort, userName, password);
             
          
         	createDatabasePostgresqlWithConnection(adminConnection, targetDatabaseName);
         	
-            result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, targetHostAndPort, userName, password, psqlPath);
+        	//setUsernameAndPassword(adminConnection, targetDatabaseName, userName, password);
+        	
+            result = restoreDatabaseSchemaFromSQLFile(targetDatabaseName, targetHostAndPort, adminUserName, adminPassword, psqlPath);
             
-            Connection connectionCopy = getConnectionPostgreSQL(targetDbAddress, userName, password);
+            Connection connectionCopy = getConnectionPostgreSQL(targetDbAddress, adminUserName, adminPassword);
             
         	//executeSql("C:/Users/Adam/backup.sql", connectionCopy);
         	
             if(mode.equals("force")) {
-            	//nie kopiuje tabel, które wyrzucaj¹ fk exception podczas insertowania
+            	//nie kopiuje tabel, ktï¿½re wyrzucajï¿½ fk exception podczas insertowania
             	tablesToCopy = collectTablesWithoutFKException(tablesToCopy, connection, databaseType, templateDatabaseName);
             }
             
@@ -927,6 +939,23 @@ public class Migration
             connectionCopy.close();
         }
         return result;
+        
+    }
+    
+    public static void setUsernameAndPassword(Connection adminConnection, String targetDatabaseName, String userName, String password) {
+        String query = "CREATE USER " + userName +  " WITH PASSWORD '" + password + "';";
+        query += "GRANT ALL PRIVILEGES ON DATABASE " + targetDatabaseName + " to " + userName;
+        
+        Statement statement;
+        try
+        {
+            statement = adminConnection.createStatement();
+            statement.execute( query );
+        }
+        catch ( SQLException e )
+        {
+            logger.error( e );
+        }
         
     }
     
@@ -1450,7 +1479,7 @@ public class Migration
 		} catch (FileNotFoundException e) {
 			logger.error(e.getMessage());
 			//e.printStackTrace();
-			logger.error("Exception while importing.");
+			logger.error("Exception while exporting.");
 		}
     }
     
@@ -1497,7 +1526,7 @@ public class Migration
     public static void restorePostgresqlDatabase(String psqlPath, String host, String port,
     		String userName, String password, String databaseName, String restoreDatabaseName, String fullZipPath, String adminDatabaseName) {
     	
-    	String dbAddress = "//" + host + "/" + databaseName;
+    	String dbAddress = "//" + host + ":" + port + "/" + adminDatabaseName;
     	createDatabasePostgresql(dbAddress, userName, password, restoreDatabaseName);
     	unZip(fullZipPath, System.getProperty("user.home"));
     	String sqlPath = System.getProperty("user.home") +  File.separator + databaseName + ".backup";
@@ -1519,7 +1548,7 @@ public class Migration
         
         // Set the password
         final Map<String, String> env = pb.environment();
-        env.put("PGPASSWORD", "pguser");
+        env.put("PGPASSWORD", password);
 
         try {
             final Process process = pb.start();
@@ -1535,7 +1564,7 @@ public class Migration
             r.close();
 
             final int dcertExitCode = process.waitFor();
-            logger.info("Databas eimported successfully.");
+            logger.info("Database imported successfully.");
          } catch (IOException e) {
         	logger.error(e.getMessage());
             //e.printStackTrace();
@@ -1601,6 +1630,7 @@ public class Migration
     		String databaseName) {
     	Connection connection = getConnectionPostgreSQL(dbAdress, userName, password);
     	String query = "CREATE DATABASE " + databaseName +";";
+    	System.out.println( dbAdress);
     	logger.info(query);
     	
     	Statement statement;
@@ -1862,7 +1892,7 @@ public class Migration
 			List<String> tablesNames = getDatabaseTablesNames(connection);
 			
 			for(int i = 0; i <tablesNames.size(); i++) {
-				//zwraca funkcjê, która po wywo³aniu zwraca odpowiednie zapytanie
+				//zwraca funkcjï¿½, ktï¿½ra po wywoï¿½aniu zwraca odpowiednie zapytanie
 				String functionQuery = getCopyFKConstrainstQueries(tablesNames.get(i));
 				ResultSet rs = statement.executeQuery(functionQuery);
 				//String createConstraint = "";
@@ -1917,7 +1947,7 @@ public class Migration
 			Statement statement = connection.createStatement();
 			
 			for(int i = 0; i < mergeTablesNames.size(); i++) {
-				//zwraca funkcjê, która po wywo³aniu zwraca odpowiednie zapytanie
+				//zwraca funkcjï¿½, ktï¿½ra po wywoï¿½aniu zwraca odpowiednie zapytanie
 				String functionQuery = getMsSQLCreateTableQuery(mergeTablesNames.get(i));
 				ResultSet rs = statement.executeQuery(functionQuery);
 				String createTable = "";
