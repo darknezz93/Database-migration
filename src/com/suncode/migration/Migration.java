@@ -1,4 +1,4 @@
-package com.database.migration;
+package com.suncode.migration;
 
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;

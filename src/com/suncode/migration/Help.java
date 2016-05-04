@@ -1,4 +1,4 @@
-package com.database.migration;
+package com.suncode.migration;
 
 public class Help {
 	
