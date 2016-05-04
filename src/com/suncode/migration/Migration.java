@@ -27,6 +27,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -222,8 +223,19 @@ public class Migration
         	} else {
         		String targetZipDirectoryPath = args[1];
         		logger.info("Exporting database to zip file...");
-                exportPostgresToSQLFile(pg_dumpPath, host, 
-                		port, userName, password, templateDatabaseName, System.getProperty("user.home") + File.separator + templateDatabaseName + ".backup");
+        		
+        		dbAdress += "/" + templateDatabaseName;
+        		
+                Connection connection = getDatabaseConnection(dbAdress, userName, password, "postgresql", hostAndPort,
+                                                              templateDatabaseName, integratedSecurity);
+        		List<String> allTablesNames = getDatabaseTablesNames(connection);
+        		List<String> unusedTablesNames = readUnusedTablesNamesFromProperties( propertiesFile );
+        		unusedSequencesNames = readUnusedSequencesNamesFromProperties( propertiesFile );
+        		
+        		
+                exportPostgresToSQLFileForSelectedTables(pg_dumpPath, host, 
+                		port, userName, password, templateDatabaseName, System.getProperty("user.home") + File.separator + templateDatabaseName + "1" + ".backup",
+                		allTablesNames, unusedTablesNames, unusedSequencesNames);
                 addDatabaseToZipArchive(templateDatabaseName, targetZipDirectoryPath);
         	}
             
@@ -271,6 +283,7 @@ public class Migration
 				String adminDbAddress = targetDbAddress + "/" + adminDatabaseName;
 				
 				dbAdress += "/" + templateDatabaseName;
+				
 
 				Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort,
 						templateDatabaseName, integratedSecurity);
@@ -1559,6 +1572,140 @@ public class Migration
     }
     
     
+    public static void exportPostgresToSQLFileForSelectedTables( String pg_dumpPath, String host, String port,
+                                                String userName, String password, String databaseName,
+                                                String targetDirectoryPath, List<String> tablesNames,
+                                                List<String> unusedTablesNames, List<String> unusedSequencesNames) throws IOException
+    {
+        
+        final List<String> baseCmds = new ArrayList<String>();
+        baseCmds.add( pg_dumpPath );
+        baseCmds.add( "-h" );
+        baseCmds.add( host );
+        baseCmds.add( "-p" );
+        baseCmds.add( port );
+        baseCmds.add( "-U" );
+        baseCmds.add( userName );
+
+        for(String unusedTable: unusedTablesNames) {
+            baseCmds.add( "-T" );
+            baseCmds.add(unusedTable);
+        }
+        for(String unusedSequence: unusedSequencesNames) {
+            baseCmds.add( "-T" );
+            baseCmds.add(unusedSequence);
+        }
+        baseCmds.add( "-f" );
+        baseCmds.add( targetDirectoryPath );
+        baseCmds.add( databaseName );
+        final ProcessBuilder pb = new ProcessBuilder( baseCmds );
+                                
+        // Set the password
+        final Map<String, String> env = pb.environment();
+        env.put( "PGPASSWORD", password );
+
+        try
+        {
+            final Process process = pb.start();
+
+            final BufferedReader r = new BufferedReader(new InputStreamReader( process.getErrorStream() ) );
+            String line = r.readLine();
+            while ( line != null )
+            {
+                logger.info( line );
+                // System.err.println(line);
+                line = r.readLine();
+            }
+            r.close();
+
+            final int dcertExitCode = process.waitFor();
+
+        }
+        catch ( IOException e ) {
+            logger.error( e.getMessage() );
+        }
+        catch ( InterruptedException ie ) {
+            logger.error( ie );
+        }
+        
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        final List<String> baseCmdsUnusedTables = new ArrayList<String>();
+        baseCmdsUnusedTables.add(pg_dumpPath);
+        baseCmdsUnusedTables.add("-h");
+        baseCmdsUnusedTables.add(host);
+        baseCmdsUnusedTables.add("-p");
+        baseCmdsUnusedTables.add(port);
+        baseCmdsUnusedTables.add("-U");
+        baseCmdsUnusedTables.add(userName);
+        baseCmdsUnusedTables.add("-s");
+        for(String unusedTable: unusedTablesNames) {
+            baseCmdsUnusedTables.add("-t");
+            baseCmdsUnusedTables.add(unusedTable);   
+        }
+        baseCmdsUnusedTables.add("-v");
+        baseCmdsUnusedTables.add("-f");
+        baseCmdsUnusedTables.add(System.getProperty("user.home") + File.separator + databaseName + "2" + ".backup");
+        baseCmdsUnusedTables.add(databaseName);
+        final ProcessBuilder pb1 = new ProcessBuilder(baseCmdsUnusedTables);
+        
+        // Set the password
+        final Map<String, String> env1 = pb.environment();
+        env1.put("PGPASSWORD", password);
+
+        try {
+            final Process process = pb1.start();
+
+            final BufferedReader r = new BufferedReader(
+                      new InputStreamReader(process.getErrorStream()));
+            String line = r.readLine();
+            while (line != null) {
+                logger.info(line);
+                line = r.readLine();
+            }
+            r.close();
+
+            final int dcertExitCode = process.waitFor();
+
+         } catch (IOException e) {
+            logger.debug(e);
+            e.printStackTrace();
+         } catch (InterruptedException ie) {
+             logger.debug(ie);
+            ie.printStackTrace();
+         }
+        
+        String secondFilePath = System.getProperty("user.home") + File.separator + databaseName + "2" + ".backup";
+        concatenateFiles(targetDirectoryPath, secondFilePath, databaseName);
+        
+        
+    }    
+    
+    public static void concatenateFiles(String firstFile, String secondFile, String databaseName) throws IOException {
+        File outFile = new File(System.getProperty("user.home") + File.separator + databaseName  + ".backup");
+        OutputStream out = new FileOutputStream(outFile);
+        byte[] buf = new byte[1024];
+        String files[] = new String[2];
+        files[0] = firstFile;
+        files[1] = secondFile;
+        for (String file : files) {
+            InputStream in = new FileInputStream(file);
+            int b = 0;
+            while ( (b = in.read(buf)) >= 0) {
+                out.write(buf, 0, b);
+                out.flush();
+            }
+        }
+        out.close();
+        removeFile(firstFile);
+        removeFile(secondFile);
+    }
+    
+    
+    /**
+     *Exportuje schemat postgresql 
+     * 
+     **/
     public static void exportPostgresToSQLFile(String pg_dumpPath, String host, String port, 
     		String userName, String password, String databaseName, String targetDirectoryPath) {
     	
@@ -1570,6 +1717,7 @@ public class Migration
         baseCmds.add(port);
         baseCmds.add("-U");
         baseCmds.add(userName);
+        baseCmds.add("-s");
         baseCmds.add("-b");
         baseCmds.add("-v");
         baseCmds.add("-f");

@@ -61,6 +61,8 @@ public class Help {
 		
 		msg += "--- EXPORTING DATABASE --- \n";
 		msg += "export_type zip_path\n";
+		msg += "Description: Exporting database schema with tables content except content of unusedTables from properties file.\n";
+		msg += "Exports all sequences except unusedSequences from properties file.";
 		msg += "Example : export-postgresql /home/temp/file.zip  /home/temp/database.properties\n";
 		msg += "Exporting database with :host, :port, :databaseName, :userName and :password properties.\n";
 		msg += "\n";
