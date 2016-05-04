@@ -782,7 +782,7 @@ public class Migration
     }
     
     public static List<Long> getStartsWithNumberForPostgresSequence(Connection connection, List<String> sequencesNames) {
-    	List<Long> startsWithNumbers = new ArrayList<>();
+    	List<Long> startsWithNumbers = new ArrayList<Long>();
     	
     	try {
 			Statement statement = connection.createStatement();
@@ -811,7 +811,7 @@ public class Migration
     
     public static List<Long> getStartsWithNumberForPostgresMergeSequences(Connection connection, List<String> sequencesNames,
                                                                          List<String> unusedSequencesNames) {
-        List<Long> startsWithNumbers = new ArrayList<>();
+        List<Long> startsWithNumbers = new ArrayList<Long>();
         
         /*List<String> removedSequencesNames = new ArrayList<String>();
         removedSequencesNames = sequencesNames;
@@ -849,8 +849,8 @@ public class Migration
     
     public static List<String> getNamesOfSequencesForMergePostgresqlTables(Connection secondConnection, List<String> mergeTables,
                                                                            List<String> unusedMergeSequencesNames) {
-        List<String> sequencesNames = new ArrayList<>();
-        List<String> finalSequencesNames  = new ArrayList<>();
+        List<String> sequencesNames = new ArrayList<String>();
+        List<String> finalSequencesNames  = new ArrayList<String>();
         try {
             Statement statement = secondConnection.createStatement();
             String query = "SELECT c.relname FROM pg_class c WHERE c.relkind = 'S';";
@@ -906,8 +906,8 @@ public class Migration
     
     public static List<String> getNamesOfSequencesForPostgresqlTables(Connection connection, List<String> tablesToCopy,
                                                                       List<String> unusedSequencesNames) {
-    	List<String> sequencesNames = new ArrayList<>();
-    	List<String> finalSequencesNames  = new ArrayList<>();
+    	List<String> sequencesNames = new ArrayList<String>();
+    	List<String> finalSequencesNames  = new ArrayList<String>();
     	try {
 			Statement statement = connection.createStatement();
 			String query = "SELECT c.relname FROM pg_class c WHERE c.relkind = 'S';";
@@ -2040,7 +2040,7 @@ public class Migration
 				ResultSet rs = statement.executeQuery(functionQuery);
 				//String createConstraint = "";
 				
-				List<String> createConstraints = new ArrayList<>();
+				List<String> createConstraints = new ArrayList<String>();
 				
 				while(rs.next()) {
 					createConstraints.add(rs.getString(1));
@@ -2131,7 +2131,7 @@ public class Migration
     public static boolean copyMsSQLTablesContent(Connection connection, Connection connectionCopy, String targetDatabaseName,String templateDatabaseName,
     	List<String> tablesToCopy, String databaseType, String mode) throws SQLException {
     	
-    	List<String> orderedTablesToCopy = new ArrayList<>();
+    	List<String> orderedTablesToCopy = new ArrayList<String>();
     	
     	/*for(int i = 0; i < tablesToCopy.size(); i++) {
     		System.out.println(tablesToCopy.get(i));
@@ -2207,7 +2207,7 @@ public class Migration
     	boolean result = false;
     	
     	
-    	List<String> tables = new ArrayList<>();
+    	List<String> tables = new ArrayList<String>();
     	Statement statement;
     	Statement statementCopy;
 		try {
@@ -2252,9 +2252,9 @@ public class Migration
     }
     
     public static List<String> collectTablesList(List<String> tablesNames, Connection connection, String databaseType, String databaseName) {
-    	List<String> finalTablesOrder = new ArrayList<>();
-    	List<String> tablesWithForeignKeys = new ArrayList<>();
-    	List<String> normalTables = new ArrayList<>();
+    	List<String> finalTablesOrder = new ArrayList<String>();
+    	List<String> tablesWithForeignKeys = new ArrayList<String>();
+    	List<String> normalTables = new ArrayList<String>();
     	
     	for(int i = 0; i < tablesNames.size(); i++) {
     		String table = tablesNames.get(i);
@@ -2309,8 +2309,8 @@ public class Migration
     }
     
     public static List<String> collectTablesWithoutFKException(List<String> tablesNames, Connection connection, String databaseType, String databaseName) {
-    	List<String> tablesWithForeignKeys = new ArrayList<>();
-    	List<String> normalTables = new ArrayList<>();
+    	List<String> tablesWithForeignKeys = new ArrayList<String>();
+    	List<String> normalTables = new ArrayList<String>();
     	for(int i = 0; i < tablesNames.size(); i++) {
     		String table = tablesNames.get(i);
     		if(chceckIfTableContainsForeignKey(table, connection, databaseType, databaseName)) {
@@ -2374,7 +2374,7 @@ public class Migration
     public static List<String> getForeignKeysForTable(String tableName, Connection connection, String databaseType,
     		String databaseName) {
     	Statement statement;
-    	List<String> foreignKeys = new ArrayList<>();
+    	List<String> foreignKeys = new ArrayList<String>();
 		try {
 			statement = connection.createStatement();
 			DatabaseMetaData dm = connection.getMetaData();
@@ -2426,7 +2426,7 @@ public class Migration
 			}
 			
 			String column_name = "";
-			List<String> columnNames = new ArrayList<>();
+			List<String> columnNames = new ArrayList<String>();
             while ( tableForeignKeys.next() )
             {
                 column_name = tableForeignKeys.getString( "FKTABLE_NAME" );
@@ -2591,7 +2591,7 @@ public class Migration
     
     
     public static List<String> readUnusedTablesNamesFromProperties(String filePath) {
-    	List<String> unusedTablesNames = new ArrayList<>();
+    	List<String> unusedTablesNames = new ArrayList<String>();
     	
     	FileInputStream inputStream = null;
 		try {
@@ -2623,7 +2623,7 @@ public class Migration
     }
     
     public static List<String> readUnusedSequencesNamesFromProperties(String filePath) {
-        List<String> unusedSequencesNames = new ArrayList<>();
+        List<String> unusedSequencesNames = new ArrayList<String>();
         
         FileInputStream inputStream = null;
         try {
@@ -2653,7 +2653,7 @@ public class Migration
     }
     
     public static List<String> readUnusedMergeSequencesNamesFromProperties(String filePath) {
-        List<String> unusedMergeSequencesNames = new ArrayList<>();
+        List<String> unusedMergeSequencesNames = new ArrayList<String>();
         
         FileInputStream inputStream = null;
         try {
@@ -2683,7 +2683,7 @@ public class Migration
     }
     
     public static List<String> readMergeTablesNamesFromProperties(String filePath) {
-    	List<String> unusedTablesNames = new ArrayList<>();
+    	List<String> unusedTablesNames = new ArrayList<String>();
     	
     	FileInputStream inputStream = null;
 		try {
