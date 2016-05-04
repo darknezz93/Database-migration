@@ -316,6 +316,7 @@ public class Migration
 				//Najpierw normalna kopia pierwotnej bazy do bazy docelowej
 				String dbAdressCopy = targetDbAddress + "/" + targetDatabaseName;
 				String secondDBAdress = dbAdress + "/" + secondDatabaseName;
+				
 				dbAdress += "/" + templateDatabaseName;
 				
 				Connection connection = getDatabaseConnection(dbAdress, userName, password, databaseType, hostAndPort,
@@ -334,6 +335,8 @@ public class Migration
 					adminConnection = getConnectionMsSQL(adminDbAddress, adminUserName, adminPassword, targetHostAndPort, adminDatabaseName, integratedSecurity);
 				}
 				List<String> allTablesNames = getDatabaseTablesNames(connection);
+				
+				System.out.println("All tables names size: " + allTablesNames.size());
 				
                 unusedSequencesNames = readUnusedSequencesNamesFromProperties(propertiesFile);
 				
@@ -359,9 +362,12 @@ public class Migration
 							schemaOnly = true;
 						}
 					}
+					
+					unusedMergeSequencesNames = readUnusedMergeSequencesNamesFromProperties(propertiesFile);
+					
 					result = copyPostgresqlTablesToMergeDatabase(connectionCopy, secondConnection, mergeTables,
 							hostAndPort, pg_dumpPath, userName, password, secondDatabaseName,
-							psqlPath, targetDatabaseName, schemaOnly, createMergeSequences, unusedMergeSequencesNames);
+							psqlPath, targetDatabaseName, schemaOnly, createMergeSequences, unusedMergeSequencesNames, tablesNames);
 					
 					connectionCopy.close();
 					secondConnection.close();
@@ -556,17 +562,21 @@ public class Migration
     												String password, String secondDatabaseName,
     												String psqlPath, String targetDatabaseName,
     												boolean schemaOnly, boolean createMergeSequences,
-    												List<String> unusedMergeSequencesNames) {
+    												List<String> unusedMergeSequencesNames,
+    												List<String> unusedTablesNames) {
     	boolean result = false;
     	
     	
-    	if(createMergeSequences) {
-        	List<String> sequencesNames = getNamesOfSequencesForPostgresqlTables(secondConnection, mergeTables, unusedMergeSequencesNames);
-        	List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(secondConnection, sequencesNames);
-        	result = createPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers, schemaOnly, createMergeSequences);	
-    	}
+    	//if(createMergeSequences) {
+        	
+    	    List<String> sequencesNames = getNamesOfSequencesForMergePostgresqlTables(secondConnection, mergeTables, unusedMergeSequencesNames);
+        	//List<Long> startsWithNumbers = getStartsWithNumberForPostgresSequence(secondConnection, sequencesNames);
+        	List<Long> startsWithNumbers = getStartsWithNumberForPostgresMergeSequences( secondConnection, sequencesNames, unusedMergeSequencesNames);
+        	System.out.println( "Starts with numbers: " + startsWithNumbers);
+        	result = createPostgresqlSequences(connectionCopy, sequencesNames, startsWithNumbers, schemaOnly, createMergeSequences, unusedMergeSequencesNames);	
+    	//}
     	result = copyPostgresqlTablesToDatabase(hostAndPort, pg_dumpPath, userName, password, secondDatabaseName, 
-    			mergeTables, psqlPath, targetDatabaseName, schemaOnly);
+    			mergeTables, psqlPath, targetDatabaseName, schemaOnly, unusedTablesNames);
     
     	return result;
     }
@@ -574,12 +584,14 @@ public class Migration
     
     public static boolean copyPostgresqlTablesToDatabase(String hostAndPort, String pg_dumpPath,
     		String userName, String password, String secondDatabaseName, List<String> mergeTables,
-    		String psqlPath, String targetDatabaseName, boolean schemaOnly) {
+    		String psqlPath, String targetDatabaseName, boolean schemaOnly, List<String> unusedTablesNames) {
     	boolean result = false;
     	
+    	
     	for(int i = 0 ; i < mergeTables.size(); i++) {
+    	    boolean unusedTable = unusedTablesNames.contains( mergeTables.get(i));
         	copyPostgresqlTableSchemaToSqlFile(hostAndPort, pg_dumpPath, userName, password, 
-        			secondDatabaseName, mergeTables.get(i), schemaOnly);    		
+        			secondDatabaseName, mergeTables.get(i), schemaOnly, unusedTable);    		
     	}
     	for(int i = 0; i < mergeTables.size(); i++) {
     		restorePostgresqlTableFromSqlFile(hostAndPort, psqlPath, targetDatabaseName,
@@ -678,7 +690,8 @@ public class Migration
     
     
     public static void copyPostgresqlTableSchemaToSqlFile(String hostAndPort, String pg_dumpPath,
-    		String userName, String password, String templateDatabaseName, String tableName, boolean schemaOnly) {
+    		String userName, String password, String templateDatabaseName, String tableName, boolean schemaOnly,
+    		boolean unusedTable) {
     	
     	//pg_dump -U postgres -t language dvdrental > C:/Users/Adam/Desktop/table.sql
     	String host = getHostFromAddress(hostAndPort);
@@ -694,7 +707,8 @@ public class Migration
         baseCmds.add(port);
         baseCmds.add("-U");
         baseCmds.add(userName);
-        if(schemaOnly) {
+        if(schemaOnly || unusedTable) {
+            System.out.println( "Copying only schema for table: " + tableName);
         	baseCmds.add("-s");
         }
         baseCmds.add("-t");
@@ -736,14 +750,18 @@ public class Migration
     
     public static boolean createPostgresqlSequences(Connection connection, List<String> sequencesNames,
     												List<Long> startsWithNumbers, boolean schemaOnly,
-    												boolean createMergeSequences) {
+    												boolean createMergeSequences, List<String> unusedMergeSequencesNames) {
     	boolean result = false;
     	String query = "";
     	try {
 			Statement statement = connection.createStatement();
 			for(int i = 0; i < sequencesNames.size(); i++) {
 				
-				if(schemaOnly || !createMergeSequences) {
+			    //System.out.println( sequencesNames.size() );
+			    //System.out.println( "Unused merge sequences names size: " + unusedMergeSequencesNames.size() );
+			    //System.out.println(unusedMergeSequencesNames.contains(sequencesNames.get(i)));
+			    
+				if(schemaOnly || !createMergeSequences || unusedMergeSequencesNames.contains(sequencesNames.get(i))) {
 					query = "CREATE SEQUENCE " + sequencesNames.get(i) + " START 1";
 					System.out.println( query );
 				} else {
@@ -789,6 +807,101 @@ public class Migration
 	
     	return startsWithNumbers;
     	
+    }
+    
+    public static List<Long> getStartsWithNumberForPostgresMergeSequences(Connection connection, List<String> sequencesNames,
+                                                                         List<String> unusedSequencesNames) {
+        List<Long> startsWithNumbers = new ArrayList<>();
+        
+        /*List<String> removedSequencesNames = new ArrayList<String>();
+        removedSequencesNames = sequencesNames;
+        removedSequencesNames = removeElementsFromList( removedSequencesNames, unusedSequencesNames ); */
+        
+        try {
+            Statement statement = connection.createStatement();
+            
+            //System.out.println(sequencesNames.size());
+            for(int i = 0; i < sequencesNames.size(); i++) {
+                
+                if(unusedSequencesNames.contains(sequencesNames.get( i ))) {
+                    startsWithNumbers.add((long) 1);
+                } else {
+                    String query = "SELECT last_value FROM " + sequencesNames.get(i) ;
+                    ResultSet rs = statement.executeQuery(query);
+                    
+                    while(rs.next()) {
+                        Long number = rs.getLong(1);
+                        startsWithNumbers.add(number);
+                    }
+                }
+
+            }
+            
+        } catch (SQLException e) {
+            logger.debug(e);
+            e.printStackTrace();
+        }
+    
+        return startsWithNumbers;
+        
+    }
+    
+    
+    public static List<String> getNamesOfSequencesForMergePostgresqlTables(Connection secondConnection, List<String> mergeTables,
+                                                                           List<String> unusedMergeSequencesNames) {
+        List<String> sequencesNames = new ArrayList<>();
+        List<String> finalSequencesNames  = new ArrayList<>();
+        try {
+            Statement statement = secondConnection.createStatement();
+            String query = "SELECT c.relname FROM pg_class c WHERE c.relkind = 'S';";
+            
+            ResultSet rs = statement.executeQuery(query);
+            while(rs.next()) {
+                //System.out.println(rs.getString(1));
+                sequencesNames.add(rs.getString(1));
+            }
+            
+        } catch (SQLException e) {
+            logger.debug(e);
+            e.printStackTrace();
+        }
+        
+        for(String unused: unusedMergeSequencesNames) {
+            System.out.println( "Unused merge sequence:----------------- " + unused );
+        }
+        //sequencesNames = removeElementsFromList(sequencesNames, unusedMergeSequencesNames);
+        
+        //usuniecie sekwencji, które nie zawieraja nazwy mergowanych tabeli 
+        sequencesNames = removeSequencesNamesWithoutMergeTableName(sequencesNames, mergeTables);
+        
+        System.out.println( "Final sequences names size: "  + sequencesNames.size());
+
+        return sequencesNames;
+    }
+    
+    public static boolean checkIfSequenceBelongsToMergeTables(String sequenceName, List<String> mergeTablesNames) {
+        for(String mergeTableName: mergeTablesNames) {
+            if(sequenceName.contains( mergeTableName )) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public static List<String> removeSequencesNamesWithoutMergeTableName( List<String> sequencesNames,
+                                                                          List<String> mergeTablesNames )
+    {
+        List<String> finalSequencesNames = new ArrayList<String>();
+
+        for (int i = 0; i < sequencesNames.size(); i++ )
+        {
+            boolean result = checkIfSequenceBelongsToMergeTables( sequencesNames.get( i ), mergeTablesNames );
+            if ( result )
+            {
+                finalSequencesNames.add( sequencesNames.get( i ) );
+            }
+        }
+        return finalSequencesNames;
     }
     
     public static List<String> getNamesOfSequencesForPostgresqlTables(Connection connection, List<String> tablesToCopy,

@@ -95,8 +95,11 @@ public class Help {
 		msg += "postgresql.password=pguser\n";
 		msg += "postgresql.pg_dumpPath=C:\\ProgramFiles\\PostgreSQL\\9.5\\bin\\pg_dump\n";
 		msg += "postgresql.psqlPath=C:\\ProgramFiles\\PostgreSQL\\9.5\\bin\\psql\n";
-		msg += "postgresql.updateSequences=false\n";
-		msg += "postgresql.createMergeSequences=false\n";
+		msg += "postgresql.updateSequences=false\n\n";
+		
+		msg += "#ustawienie na false powoduje ustawienie wszystkich mergowanych sekwencji na 1 ( nie trzeba podawac w\n"; 
+		msg += "#unusedMergeSequencesNames), gdy chcemy aby uwzględniło wartości z unusedMergeSequences wartość musi być zawsze true\n";
+		msg += "postgresql.createMergeSequences=false\n\n";
 		msg += "#Second\n";
 		msg += "postgresql.secondDatabaseName=dvdrental_copy\n\n";
 
@@ -114,15 +117,23 @@ public class Help {
 		msg += "mssql.integratedSecurity=true\n";
 		msg += "mssql.adminDatabaseName=pubs\n";
 		msg += "#Second\n";
-		msg += "mssql.secondDatabaseName=trunk\n";
+		msg += "mssql.secondDatabaseName=trunk\n\n";
 
 		msg += "#Unused Tables\n";
 		msg += "unusedTable.table1=jobs\n";
-		msg += "unusedTable.table2=address\n";
+		msg += "unusedTable.table2=address\n\n";
+		
+		msg += "#Unused Sequences\n";
+		msg += "unusedSequence.sequence1=pm_as_status_id_seq\n";
+		msg += "unusedSequence.sequence2=pm_dashboard_gadgetprop_id\n\n";
 
 		msg += "#Merge Tables\n";
 		msg += "mergeTable.table1=Point\n";
-		msg += "mergeTable.table2=User\n";
+		msg += "mergeTable.table2=User\n\n";
+		
+		msg += "#Unused Merge Tables sequences\n";
+		msg += "unusedMergeSequence.sequence1=pm_dashboard_gadgetprop_id\n";
+		msg += "unusedMergeSequence.sequence2=pm_processdata_id_seq\n";
 		
 		return msg;
 	}
